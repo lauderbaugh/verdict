@@ -13,7 +13,8 @@ from __future__ import annotations
 from verdict.feed import FeedItem
 from verdict.models import Verdict
 from verdict.sources.base import ParseResult, Problem
-from verdict.verso import dig, extract_state, item_reviewed_name
+from verdict.sources.prose import prose_blocks, track_candidates
+from verdict.verso import children_of, dig, extract_state, item_reviewed_name
 
 NAME = "pitchfork_bnm"
 FEED_URL = "https://pitchfork.com/feed/feed-album-reviews/rss"
@@ -22,11 +23,16 @@ FEED_URL = "https://pitchfork.com/feed/feed-album-reviews/rss"
 #: playlist. They are excluded at discovery, off the feed `description`,
 #: so their pages are never fetched.
 #:
-#: UNVERIFIED: no Sunday Review fixture was available, so these markers
-#: come from SPEC's prose description of the boilerplate rather than from
-#: a checked response. Exclusions are logged rather than silent so the
-#: rule can be confirmed against a real run.
+#: Verified 2026-08-30 against the live album-reviews feed: exactly one of
+#: 30 items was a Sunday Review, and its description opened with this
+#: boilerplate verbatim.
+#:
+#: String matching is a last resort, but there is no structured signal to
+#: use instead: `rubric.name` is "Albums" on Sunday Reviews exactly as it
+#: is on ordinary reviews, and `documentType` is "review" for both. See
+#: tests/test_bnm.py::test_rubric_cannot_distinguish_a_sunday_review.
 SUNDAY_REVIEW_MARKERS = (
+    "each sunday",
     "every sunday",
     "significant album from the past",
 )
@@ -133,6 +139,28 @@ def _artist_album(review: dict, entry: dict, html: str, single: bool):
     return (artist, album) if artist and album else None
 
 
+def _body_candidates(review: dict, single: bool) -> tuple[str, ...]:
+    """Quoted track candidates from the review body.
+
+    Full reviews quote far more freely than a one-paragraph roundup
+    blurb -- a verified review yielded 25 candidates against the
+    roundup's one or two per album -- so the hit rate here is lower.
+    That costs recall, not accuracy: tracklist validation discards
+    whatever is not a real title, and the alternative is falling back to
+    the album's first track for every Best New Music record.
+
+    Multi-album reviews get nothing. One shared body cannot be
+    attributed to a particular album, and guessing risks pinning one
+    record's track onto another.
+    """
+    if not single:
+        return ()
+    body = review.get("body")
+    if not isinstance(body, list):
+        return ()  # no body is a thin result, not a broken page
+    return track_candidates(prose_blocks(children_of(body)))
+
+
 def parse(item: FeedItem, html: str) -> ParseResult:
     """Turn one review page into a Verdict per Best New Music album."""
     state = extract_state(html)
@@ -142,6 +170,7 @@ def parse(item: FeedItem, html: str) -> ParseResult:
     verdicts: list[Verdict] = []
     problems: list[Problem] = []
     single = len(entries) == 1
+    candidates = _body_candidates(review, single)
 
     for entry in entries:
         rating = entry.get("musicRating")
@@ -169,7 +198,7 @@ def parse(item: FeedItem, html: str) -> ParseResult:
                 published_at=item.published_at,
                 label=(entry.get("publisher") or "").strip() or None,
                 score=_score(rating),
-                named_tracks=(),
+                named_tracks=candidates,
             )
         )
 

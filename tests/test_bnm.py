@@ -58,13 +58,70 @@ def test_score_is_coerced_to_float(bnm_html):
     assert isinstance(bnm.parse(ITEM, bnm_html).verdicts[0].score, float)
 
 
-def test_bnm_names_no_tracks(bnm_html):
-    """SPEC does not ask this adapter for track candidates.
+def test_track_candidates_are_lifted_from_the_review_body(bnm_html):
+    """Without this, every BNM verdict would be a first-track fallback."""
+    tracks = bnm.parse(ITEM, bnm_html).verdicts[0].named_tracks
+    assert {"I Ate the Most", "San Francisco", "Riding That Symbol"} <= set(tracks)
 
-    Resolution falls back to the album's first track, so an empty tuple
-    is a correct answer rather than a gap.
+
+def test_review_candidates_are_noisier_than_roundup_candidates(bnm_html):
+    """A full review quotes lyrics far more than a one-paragraph blurb.
+
+    About half of these are not tracks. That is the accepted trade: the
+    cost is recall at resolution, not a wrong track on the playlist.
     """
-    assert bnm.parse(ITEM, bnm_html).verdicts[0].named_tracks == ()
+    tracks = bnm.parse(ITEM, bnm_html).verdicts[0].named_tracks
+    assert len(tracks) > 10
+    assert "honesty" in tracks  # scare-quoted prose, discarded downstream
+
+
+def test_multi_album_review_gets_no_candidates():
+    """One shared body cannot be attributed to a particular album."""
+    page = synthetic_page({
+        "body": ["div", ["p", "The standout is “Some Track” here."]],
+        "multiReviewHeaderProps": {
+            "artistDetails": [{"name": "Band"}],
+            "itemsReviewed": [
+                {"dangerousHed": "One", "musicRating": {"isBestNewMusic": True, "score": 9}},
+                {"dangerousHed": "Two", "musicRating": {"isBestNewMusic": True, "score": 8.6}},
+            ],
+        },
+    })
+    result = bnm.parse(ITEM, page)
+    assert len(result.verdicts) == 2
+    assert all(v.named_tracks == () for v in result.verdicts)
+
+
+def test_missing_body_is_a_thin_result_not_an_error():
+    page = synthetic_page({
+        "multiReviewHeaderProps": {
+            "artistDetails": [{"name": "Band"}],
+            "itemsReviewed": [
+                {"dangerousHed": "Record", "musicRating": {"isBestNewMusic": True, "score": 9}},
+            ],
+        },
+    })
+    result = bnm.parse(ITEM, page)
+    assert result.verdicts[0].named_tracks == ()
+    assert result.problems == ()
+
+
+def test_ad_blocks_in_review_bodies_are_excluded():
+    """Review bodies carry the same ad/newsletter block zoo as roundups."""
+    page = synthetic_page({
+        "body": ["div",
+                 ["p", "The single is “Real Track”."],
+                 ["native-ad", "“Buy This”"],
+                 ["cm-unit", "“Subscribe Now”"],
+                 ["inline-newsletter", "“Sign Up”"]],
+        "multiReviewHeaderProps": {
+            "artistDetails": [{"name": "Band"}],
+            "itemsReviewed": [
+                {"dangerousHed": "Record", "musicRating": {"isBestNewMusic": True, "score": 9}},
+            ],
+        },
+    })
+    assert bnm.parse(ITEM, page).verdicts[0].named_tracks == ("Real Track",)
 
 
 @pytest.mark.parametrize(
@@ -150,3 +207,62 @@ def test_recirculation_modules_are_never_consulted(bnm_html):
     """
     assert bnm_html.count("isBestNewMusic") > 1
     assert bnm.parse(ITEM, bnm_html).verdicts[0].score == 9.0
+
+
+# --- Sunday Reviews -------------------------------------------------------
+#
+# Retrospectives on old albums. Verified against a real one: Paradis,
+# "Recto Verso" (a 2016 record reviewed on 2026-08-23).
+
+
+def test_real_sunday_review_is_excluded_at_discovery():
+    """The exact description carried by the live feed on 2026-08-30."""
+    item = FeedItem(
+        link="https://pitchfork.com/reviews/albums/paradis-recto-verso/",
+        description=(
+            "Each Sunday, Pitchfork takes an in-depth look at a significant album "
+            "from the past, and any record not in our archives is eligible. This "
+            "week, we revisit a 2016 album from France that reinvented the "
+            "decade’s electro-pop as an idyllic Mediterranean dream."
+        ),
+    )
+    assert bnm.is_sunday_review(item) is True
+    assert bnm.select(item) is False
+
+
+def test_rubric_cannot_distinguish_a_sunday_review(sunday_html, bnm_html, not_bnm_html):
+    """Why the exclusion is string matching and not a structured field.
+
+    A structured signal would be preferable, but there is not one: the
+    Sunday Review reports the same `rubric.name` and `documentType` as
+    both ordinary reviews. If a future Verso change gives Sunday Reviews
+    their own rubric, this test fails and the exclusion should move.
+    """
+    from verdict.verso import dig, extract_state
+
+    rubrics = {
+        name: dig(extract_state(html), "transformed", "review", "headerProps",
+                  "rubric", "name")
+        for name, html in (
+            ("sunday", sunday_html), ("bnm", bnm_html), ("ordinary", not_bnm_html)
+        )
+    }
+    assert rubrics == {"sunday": "Albums", "bnm": "Albums", "ordinary": "Albums"}
+
+
+def test_sunday_review_reviews_an_old_album(sunday_html):
+    """What makes it ineligible: the record is a decade old."""
+    from verdict.verso import dig, extract_state
+
+    entry = dig(extract_state(sunday_html), "transformed", "review",
+                "multiReviewHeaderProps", "itemsReviewed", 0)
+    assert entry["releaseYear"] == "2016"
+
+
+def test_sunday_review_would_be_dropped_by_the_bnm_filter_too(sunday_html):
+    """Belt and braces: it is not flagged Best New Music either.
+
+    This is a second line of defence, not the primary one -- a Sunday
+    Review carrying the flag would still need the discovery filter.
+    """
+    assert bnm.parse(ITEM, sunday_html).verdicts == ()

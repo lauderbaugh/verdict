@@ -31,6 +31,12 @@ def not_bnm_html() -> str:
     return _load("review_not_bnm.html")
 
 
+@pytest.fixture(scope="session")
+def sunday_html() -> str:
+    """A real Sunday Review: Paradis, "Recto Verso", published 2026-08-23."""
+    return _load("review_sunday.html")
+
+
 @pytest.fixture
 def roundup_item() -> FeedItem:
     return FeedItem(

@@ -2,7 +2,7 @@
 
 A small app that gathers suggested albums and tracks from various critics and maintains a Spotify playlist for the last few weeks.
 
-Read [SPEC.md](verdict-spec.md) before making changes. It records API shapes and
+Read [SPEC.md](SPEC.md) before making changes. It records API shapes and
 page structures verified against live responses, and it wins over recollection.
 
 ## Status

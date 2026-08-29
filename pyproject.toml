@@ -1,0 +1,21 @@
+[project]
+name = "verdict"
+version = "0.1.0"
+description = "Reads album recommendations from music critics and maintains a rolling Spotify playlist."
+requires-python = ">=3.10"
+
+# No runtime dependencies yet. The adapters use only the standard library.
+# Resolution will need an HTTP client; SPEC rules out any Spotify client
+# library not confirmed updated after February 2026, so that will be raw
+# HTTP rather than a wrapper.
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.setuptools.packages.find]
+include = ["verdict*"]

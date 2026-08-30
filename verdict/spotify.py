@@ -17,7 +17,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, Tuple
 
 API = "https://api.spotify.com/v1"
 TOKEN_URL = "https://accounts.spotify.com/api/token"
@@ -33,6 +33,20 @@ TRACKS_PAGE = 50
 # does not defer them and `X | None` would need Python 3.10.
 Response = Tuple[int, Dict[str, str], bytes]
 Transport = Callable[[str, str, dict, Optional[bytes]], Response]
+
+
+#: Both playlist writes cap at 100 objects per request.
+WRITE_BATCH = 100
+
+#: GET /playlists/{id}/items caps at 50 per page. A 4-week window holds
+#: roughly 56-64 tracks, so this always paginates.
+ITEMS_PAGE = 50
+
+
+def batched(items: Sequence, size: int) -> Iterator[list]:
+    """Split a sequence into chunks of at most `size`."""
+    for start in range(0, len(items), size):
+        yield list(items[start : start + size])
 
 
 def _quotable(value: str) -> str:
@@ -134,9 +148,13 @@ class TokenProvider:
 
 
 class Spotify:
-    """The read endpoints resolution needs.
+    """The endpoints this project needs, over raw HTTP.
 
-    Playlist writes live with the rolling-window pass, not here.
+    Request bodies for the playlist writes were confirmed against the
+    live documentation on 2026-08-30 and are recorded in SPEC.md. The
+    February 2026 rename moved more than the paths: `DELETE` renamed its
+    body key from `tracks` to `items`, so a body inferred from the old
+    endpoint is accepted and removes nothing.
     """
 
     def __init__(
@@ -152,15 +170,33 @@ class Spotify:
         self.max_retries = max_retries
 
     def get(self, path: str, params: dict[str, Any] | None = None) -> dict:
+        return self.request("GET", path, params=params)
+
+    def request(
+        self,
+        method: str,
+        path: str,
+        params: dict[str, Any] | None = None,
+        body: Any = None,
+    ) -> dict:
+        """One API call, with auth, retries and rate-limit handling.
+
+        Returns `{}` for a success with an empty body, which the playlist
+        writes are entitled to return.
+        """
         url = f"{API}{path}"
         if params:
             url = f"{url}?{urllib.parse.urlencode(params)}"
 
+        encoded = None if body is None else json.dumps(body).encode()
+
         for attempt in range(self.max_retries + 1):
             try:
                 request_headers = {"Authorization": f"Bearer {self.tokens.token()}"}
+                if encoded is not None:
+                    request_headers["Content-Type"] = "application/json"
                 status, response_headers, payload = self.transport(
-                    "GET", url, request_headers, None
+                    method, url, request_headers, encoded
                 )
             except (TransientError, OSError) as exc:
                 # A reset connection, timeout or DNS failure is transient.
@@ -169,10 +205,10 @@ class Spotify:
                 if attempt < self.max_retries:
                     self.sleep(2**attempt)
                     continue
-                raise SpotifyError(f"GET {path}: {exc}") from exc
+                raise SpotifyError(f"{method} {path}: {exc}") from exc
 
-            if status == 200:
-                return json.loads(payload)
+            if 200 <= status < 300:
+                return json.loads(payload) if payload else {}
 
             # Rate limited. Retry-After is in seconds and the API expects
             # it to be honoured rather than backed off arbitrarily.
@@ -184,9 +220,9 @@ class Spotify:
                 self.sleep(2**attempt)
                 continue
 
-            raise SpotifyError(f"GET {path}: HTTP {status} {payload[:200]!r}")
+            raise SpotifyError(f"{method} {path}: HTTP {status} {payload[:200]!r}")
 
-        raise SpotifyError(f"GET {path}: retries exhausted")
+        raise SpotifyError(f"{method} {path}: retries exhausted")
 
     def _search(self, query: str) -> List[dict]:
         data = self.get("/search", {"q": query, "type": "album", "limit": SEARCH_LIMIT})
@@ -227,3 +263,60 @@ class Spotify:
             if not page.get("next") or not items:
                 return tracks
             offset += len(items)
+
+    # --- playlist ------------------------------------------------------
+
+    def create_playlist(self, name: str, public: bool = True) -> dict:
+        """Create a playlist owned by the authorising user.
+
+        `POST /me/playlists`; the old `/users/{id}/playlists` form is
+        gone. Public by default, which is the point -- friends follow the
+        link rather than being added as users.
+        """
+        return self.request("POST", "/me/playlists", body={"name": name, "public": public})
+
+    def playlist_items(self, playlist_id: str) -> List[dict]:
+        """Every item in a playlist, following pagination.
+
+        Each entry carries `added_at` on the outer object and the track
+        under `item` -- not `track`, which is the pre-February shape.
+        """
+        items: List[dict] = []
+        offset = 0
+        while True:
+            page = self.request(
+                "GET",
+                f"/playlists/{urllib.parse.quote(str(playlist_id), safe='')}/items",
+                params={"limit": ITEMS_PAGE, "offset": offset},
+            )
+            batch = page.get("items", []) or []
+            items.extend(batch)
+            if not page.get("next") or not batch:
+                return items
+            offset += len(batch)
+
+    def add_items(self, playlist_id: str, uris: Sequence[str]) -> List[str]:
+        """Append tracks, in batches of 100. Returns the snapshot ids."""
+        path = f"/playlists/{urllib.parse.quote(str(playlist_id), safe='')}/items"
+        snapshots = []
+        for chunk in batched(list(uris), WRITE_BATCH):
+            result = self.request("POST", path, body={"uris": chunk})
+            snapshots.append(result.get("snapshot_id", ""))
+        return snapshots
+
+    def remove_items(self, playlist_id: str, uris: Sequence[str]) -> List[str]:
+        """Remove tracks, in batches of 100.
+
+        The body key is `items` holding objects, NOT `tracks` holding
+        strings. Removal is by URI and takes every occurrence with it,
+        which is only safe because URIs are de-duplicated before they are
+        ever added.
+        """
+        path = f"/playlists/{urllib.parse.quote(str(playlist_id), safe='')}/items"
+        snapshots = []
+        for chunk in batched(list(uris), WRITE_BATCH):
+            result = self.request(
+                "DELETE", path, body={"items": [{"uri": uri} for uri in chunk]}
+            )
+            snapshots.append(result.get("snapshot_id", ""))
+        return snapshots

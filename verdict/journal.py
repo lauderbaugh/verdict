@@ -11,9 +11,9 @@ always visible as a row rather than as an absence.
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 DEFAULT_ROOT = Path("log")
 
@@ -61,5 +61,75 @@ class Journal:
             },
         )
 
-    # additions.ndjson and removals.ndjson are written by the resolver and
-    # the rolling-window pass, which are not part of this change.
+    def addition(
+        self,
+        *,
+        source: str,
+        track: str,
+        artist: str,
+        album: str,
+        uri: str,
+        source_url: str,
+        score: Optional[float] = None,
+        match_confidence: Optional[float] = None,
+        run_date: Optional[date] = None,
+    ) -> None:
+        """Record a track added to the playlist.
+
+        Doubles as the dedup history. Scoped, not permanent: the window
+        only consults the trailing 28 days, so a record recommended again
+        months later is eligible again.
+        """
+        self.append(
+            "additions",
+            {
+                "source": source,
+                "track": track,
+                "artist": artist,
+                "album": album,
+                "uri": uri,
+                "source_url": source_url,
+                "score": score,
+                "match_confidence": match_confidence,
+                "run_date": (run_date or date.today()).isoformat(),
+            },
+        )
+
+    def removal(self, *, uri: str, aged_out_date: Optional[date] = None) -> None:
+        """Record a track aged out of the window."""
+        self.append(
+            "removals",
+            {
+                "uri": uri,
+                "aged_out_date": (aged_out_date or date.today()).isoformat(),
+            },
+        )
+
+    def recent_uris(self, within_days: int, today: Optional[date] = None) -> set:
+        """URIs added within the trailing `within_days`.
+
+        The dedup set, deliberately bounded. Reading the whole file would
+        make `additions.ndjson` a permanent blocklist and a record could
+        never return.
+        """
+        path = self.root / "additions.ndjson"
+        if not path.exists():
+            return set()
+
+        cutoff = (today or date.today()) - timedelta(days=within_days)
+        uris = set()
+        with path.open(encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    record = json.loads(line)
+                    added = date.fromisoformat(record["run_date"])
+                except (ValueError, KeyError, TypeError):
+                    # A malformed line is a logging bug, not a reason to
+                    # lose the whole dedup set.
+                    continue
+                if added >= cutoff and record.get("uri"):
+                    uris.add(record["uri"])
+        return uris

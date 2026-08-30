@@ -298,3 +298,76 @@ def test_token_network_failure_is_retried_by_get():
     api = FakeTransport([(200, {}, {"ok": True})])
     spotify = Spotify(provider, transport=api, sleep=lambda _: None)
     assert spotify.get("/x") == {"ok": True}
+
+
+# --- playlist writes ------------------------------------------------------
+
+
+def test_add_items_sends_a_uris_array():
+    """The February 2026 body. `uris`, a flat array of strings."""
+    spotify, api = client([(200, {}, {"snapshot_id": "s1"})])
+    spotify.add_items("pl1", ["spotify:track:a", "spotify:track:b"])
+    method, url, headers, body = api.calls[0]
+    assert method == "POST"
+    assert url.endswith("/playlists/pl1/items")
+    assert json.loads(body) == {"uris": ["spotify:track:a", "spotify:track:b"]}
+    assert headers["Content-Type"] == "application/json"
+
+
+def test_remove_items_sends_items_objects_not_a_tracks_array():
+    """The rename moved the body key too.
+
+    A body inferred from the old /tracks endpoint is accepted and removes
+    nothing -- a silent no-op.
+    """
+    spotify, api = client([(200, {}, {"snapshot_id": "s1"})])
+    spotify.remove_items("pl1", ["spotify:track:a"])
+    method, url, _, body = api.calls[0]
+    assert method == "DELETE"
+    assert url.endswith("/playlists/pl1/items")
+    payload = json.loads(body)
+    assert payload == {"items": [{"uri": "spotify:track:a"}]}
+    assert "tracks" not in payload
+
+
+@pytest.mark.parametrize("method_name", ["add_items", "remove_items"])
+def test_writes_batch_at_one_hundred(method_name):
+    uris = [f"spotify:track:{i}" for i in range(250)]
+    spotify, api = client([(200, {}, {"snapshot_id": "s"})] * 3)
+    getattr(spotify, method_name)("pl1", uris)
+    assert len(api.calls) == 3
+    sizes = []
+    for _, _, _, body in api.calls:
+        payload = json.loads(body)
+        sizes.append(len(payload.get("uris") or payload["items"]))
+    assert sizes == [100, 100, 50]
+
+
+def test_playlist_items_paginates():
+    """A 4-week window holds ~56-64 tracks against a 50-item page."""
+    page1 = {"items": [{"item": {"uri": f"u{i}"}} for i in range(50)], "next": "more"}
+    page2 = {"items": [{"item": {"uri": "u50"}}], "next": None}
+    spotify, api = client([(200, {}, page1), (200, {}, page2)])
+    assert len(spotify.playlist_items("pl1")) == 51
+    assert "offset=50" in api.calls[1][1]
+
+
+def test_create_playlist_posts_to_me():
+    """`/users/{id}/playlists` is gone."""
+    spotify, api = client([(200, {}, {"id": "new1"})])
+    assert spotify.create_playlist("Verdict")["id"] == "new1"
+    method, url, _, body = api.calls[0]
+    assert method == "POST" and url.endswith("/me/playlists")
+    assert json.loads(body) == {"name": "Verdict", "public": True}
+
+
+def test_empty_success_body_is_not_a_parse_error():
+    """A write may legitimately answer 200 with no body."""
+    spotify, _ = client([(200, {}, b"")])
+    assert spotify.request("DELETE", "/x") == {}
+
+
+def test_write_failures_raise_with_the_method_named():
+    spotify, _ = client([(403, {}, b'{"error":"forbidden"}')])
+    with pytest.raises(SpotifyError, match="POST /playlists"):
+        spotify.add_items("pl1", ["spotify:track:a"])

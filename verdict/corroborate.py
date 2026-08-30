@@ -29,7 +29,12 @@ import re
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
-FEED_URL = "https://www.stereogum.com/category/franchises/album-of-the-week/feed/"
+#: No trailing slash. Stereogum answers 308 Permanent Redirect on the
+#: slashed form, and urllib's redirect handler did not follow 308 before
+#: Python 3.11 -- the first live run logged
+#: "corroboration_unavailable: HTTP Error 308". Requesting the
+#: already-redirected URL avoids the question at every version.
+FEED_URL = "https://www.stereogum.com/category/franchises/album-of-the-week/feed"
 
 #: `Album Of The Week: <Artist> <em><Album></em>` in the page's Next.js
 #: state. The RSS title strips the markup and leaves no separator at all

@@ -8,6 +8,7 @@ run, on the same principle as StateShapeError.
 from __future__ import annotations
 
 import json
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -28,6 +29,13 @@ API = "https://ws.audioscrobbler.com/2.0/"
 #:
 #: A starting point, expected to be tuned: every selection logs both the
 #: per-track count and the album total precisely so it can be.
+#:
+#: Read SPEC.md before tuning this. The gate reads album.getInfo while the
+#: ranking reads track.getInfo, and the two are not the same measure --
+#: track figures appear to aggregate a recording across every release it
+#: appears on, so a track playcount above its own album total is normal
+#: rather than a fault. The first live run found the gate inert: the
+#: sparsest album seen was 2.3x above it.
 MIN_ALBUM_PLAYCOUNT = 1000
 
 #: Cap on per-track lookups for one album, so a long deluxe edition
@@ -58,7 +66,12 @@ class Lastfm:
         self,
         api_key: str,
         fetch: Callable[[str], bytes] = urllib_get,
-        sleep: Callable[[float], None] = lambda _: None,
+        # time.sleep, not a no-op: the production call site constructs
+        # Lastfm(key) with no sleep, so a no-op default silently removed
+        # the pacing below and fired every track.getInfo as fast as the
+        # socket allowed. An omitted argument should fail slow, not fail
+        # unthrottled. Tests inject the no-op explicitly.
+        sleep: Callable[[float], None] = time.sleep,
         min_album_playcount: int = MIN_ALBUM_PLAYCOUNT,
     ) -> None:
         self.api_key = api_key

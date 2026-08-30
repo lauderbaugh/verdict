@@ -22,6 +22,10 @@ jobs:
           # The PAT must be on the checkout too, or the later push uses
           # the default token and the commit is not user activity.
           token: ${{ secrets.LOG_COMMIT_PAT }}
+          # Full history. The default shallow clone leaves the runner
+          # unable to see log commits from earlier runs, so it commits on
+          # a stale base and the push is rejected non-fast-forward.
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -52,7 +56,13 @@ jobs:
           git add log/
           if git diff --staged --quiet; then
             echo "no log changes"
-          else
-            git commit -m "log: run $(date -u +%Y-%m-%d)"
-            git push
+            exit 0
           fi
+          git commit -m "log: run $(date -u +%Y-%m-%d)"
+
+          # Rebase, not merge: these are append-only logs and a merge
+          # commit per run is noise. Conflicts are handled by the
+          # merge=union driver in .gitattributes -- without it a rebase
+          # stops on an add/add conflict at end-of-file.
+          git pull --rebase origin "${GITHUB_REF_NAME}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"

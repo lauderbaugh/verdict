@@ -14,17 +14,16 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
-from verdict.feed import FeedItem, parse_rss
 from verdict.journal import Journal
 from verdict.models import Verdict
 from verdict.playlist.window import WINDOW_DAYS, plan, read_items
 from verdict.resolve.matcher import normalize
 from verdict.resolve.resolver import Resolution, ResolvedTrack, Unresolved, resolve
-from verdict.sources import pitchfork_bnm, pitchfork_roundup
+from verdict.sources import npr_new_music_friday, pitchfork_bnm, pitchfork_roundup
 from verdict.spotify import AuthError, Spotify, SpotifyError
 from verdict.verso import StateShapeError
 
-SOURCES = (pitchfork_roundup, pitchfork_bnm)
+SOURCES = (pitchfork_roundup, pitchfork_bnm, npr_new_music_friday)
 
 #: Politeness delay between page fetches. The feed reports 100 requests
 #: per window and this run needs far fewer, so there is no reason to rush.
@@ -62,62 +61,45 @@ def gather(
 ) -> List[Verdict]:
     """Every verdict one source yields this week.
 
-    Nothing here may raise. A feed that will not parse, a page that will
-    not fetch, or a state blob that has moved all become rows.
+    The source owns discovery -- its feed, its selection rules, and
+    whether a page fetch follows at all. This function knows only how to
+    fetch a URL and where to write a row.
+
+    Nothing here may raise. A dead feed, an unfetchable page, or a state
+    blob that has moved all become rows.
     """
     verdicts: List[Verdict] = []
-    try:
-        items = parse_rss(fetcher(source.FEED_URL))
-    except Exception as exc:  # noqa: BLE001 - a dead feed must not end the run
-        journal.unmatched(
-            source=source.NAME, artist=None, album=None,
-            source_url=source.FEED_URL, reason=f"feed_unavailable: {exc}",
-            run_date=run_date,
-        )
-        return verdicts
+    discovery = source.discover(fetcher)
 
-    if not items:
-        # A feed that answers 200 with nothing is broken, not quiet. Left
-        # unlogged this is the one failure with no trace anywhere.
+    for problem in discovery.problems:
         journal.unmatched(
-            source=source.NAME, artist=None, album=None,
-            source_url=source.FEED_URL, reason="feed_empty", run_date=run_date,
+            source=source.NAME, artist=problem.artist, album=problem.album,
+            source_url=problem.source_url, reason=problem.reason, run_date=run_date,
         )
-        return verdicts
 
-    for item in items:
-        # Discovery-time drops are logged, never silent: a filter that
-        # runs before the fetch leaves no other trace.
-        reason = getattr(source, "skip_reason", lambda _: None)(item)
-        if reason:
-            journal.unmatched(
-                source=source.NAME, artist=None, album=None,
-                source_url=item.link, reason=reason, run_date=run_date,
-            )
-            continue
-        if not source.select(item):
-            continue
+    for candidate in discovery.candidates:
+        page = None
+        if candidate.needs_page:
+            try:
+                page = fetcher(candidate.url)
+            except Exception as exc:  # noqa: BLE001
+                journal.unmatched(
+                    source=source.NAME, artist=None, album=None,
+                    source_url=candidate.url, reason=f"fetch_failed: {exc}",
+                    run_date=run_date,
+                )
+                continue
+            finally:
+                sleep(FETCH_DELAY)
 
         try:
-            html = fetcher(item.link)
-        except Exception as exc:  # noqa: BLE001
-            journal.unmatched(
-                source=source.NAME, artist=None, album=None,
-                source_url=item.link, reason=f"fetch_failed: {exc}",
-                run_date=run_date,
-            )
-            continue
-        finally:
-            sleep(FETCH_DELAY)
-
-        try:
-            result = source.parse(item, html)
+            result = source.parse(candidate, page)
         except StateShapeError:
             # The state blob is the fragile interface and has no
             # stability contract. Skip the item, keep the run alive.
             journal.unmatched(
                 source=source.NAME, artist=None, album=None,
-                source_url=item.link, reason="state_shape_changed",
+                source_url=candidate.url, reason="state_shape_changed",
                 run_date=run_date,
             )
             continue

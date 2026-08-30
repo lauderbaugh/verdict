@@ -12,6 +12,7 @@ KeyError or TypeError escape, so the caller can log
 
 from __future__ import annotations
 
+import html as html_module
 import json
 import re
 
@@ -103,6 +104,24 @@ def first_child_tagged(node, tag: str):
         if tag_of(child) == tag:
             return child
     return None
+
+
+_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def strip_html(value) -> str:
+    """Plain text from a Verso `dangerous*` field.
+
+    The `dangerous` prefix is Condé Nast's own marker for a field holding
+    raw HTML. `headerProps.dangerousHed` is `<em>Train on the Island</em>`
+    in every captured review, and entities turn up in the wild too
+    (`J Mascis Live at CBGB&#39;s`), so both are handled. Applied to the
+    `itemsReviewed` heds as well, which are plain today but carry no
+    guarantee of staying that way.
+    """
+    if not isinstance(value, str):
+        return ""
+    return html_module.unescape(_TAG_RE.sub("", value)).strip()
 
 
 def ld_json_docs(html: str) -> list[dict]:

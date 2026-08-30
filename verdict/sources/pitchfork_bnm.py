@@ -10,11 +10,20 @@ review page has to be fetched and inspected.
 
 from __future__ import annotations
 
+from typing import List, Optional
+
 from verdict.feed import FeedItem
 from verdict.models import Verdict
 from verdict.sources.base import ParseResult, Problem
 from verdict.sources.prose import prose_blocks, track_candidates
-from verdict.verso import children_of, dig, extract_state, item_reviewed_name
+from verdict.verso import (  # noqa: F401
+    children_of,
+    dig,
+    extract_state,
+    item_reviewed_name,
+    StateShapeError,
+    strip_html,
+)
 
 NAME = "pitchfork_bnm"
 FEED_URL = "https://pitchfork.com/feed/feed-album-reviews/rss"
@@ -31,17 +40,38 @@ FEED_URL = "https://pitchfork.com/feed/feed-album-reviews/rss"
 #: use instead: `rubric.name` is "Albums" on Sunday Reviews exactly as it
 #: is on ordinary reviews, and `documentType` is "review" for both. See
 #: tests/test_bnm.py::test_rubric_cannot_distinguish_a_sunday_review.
-SUNDAY_REVIEW_MARKERS = (
+#: Anchored to the *opening* of the description, not matched anywhere in
+#: it. A bare substring test excluded ordinary reviews -- "played the same
+#: club every Sunday since 2019", "the most significant album from the
+#: past decade of UK rap" -- and because this runs before the page is
+#: fetched, such a drop left no trace anywhere. An invisible false
+#: positive is the one failure mode this project rules out everywhere
+#: else, so the rule now matches only the verified boilerplate opening.
+SUNDAY_REVIEW_OPENERS = (
     "each sunday",
     "every sunday",
-    "significant album from the past",
 )
+
+#: A Best New Music record is new by definition. An album this many years
+#: older than its review is a retrospective that slipped past the
+#: description filter -- Pitchfork can reword boilerplate any week.
+RETROSPECTIVE_YEARS = 3
 
 
 def is_sunday_review(item: FeedItem) -> bool:
-    """True if the feed description opens with Sunday Review boilerplate."""
-    description = item.description.lower()
-    return any(marker in description for marker in SUNDAY_REVIEW_MARKERS)
+    """True if the feed description *opens with* Sunday Review boilerplate."""
+    return item.description.lstrip().lower().startswith(SUNDAY_REVIEW_OPENERS)
+
+
+def skip_reason(item: FeedItem) -> Optional[str]:
+    """Why this item will not be fetched, or None if it will be.
+
+    `select` stays a plain predicate; this exists so the caller can write
+    a row for every discovery-time drop. Without it a mis-fire here is
+    invisible, because the page is never fetched and nothing ever reaches
+    `unmatched.ndjson`.
+    """
+    return "sunday_review" if is_sunday_review(item) else None
 
 
 def select(item: FeedItem) -> bool:
@@ -51,7 +81,7 @@ def select(item: FeedItem) -> bool:
     selection is deliberately broad and the real filter happens in
     `parse`.
     """
-    return not is_sunday_review(item)
+    return skip_reason(item) is None
 
 
 def _reviewed_items(review: dict) -> list[dict]:
@@ -66,7 +96,11 @@ def _reviewed_items(review: dict) -> list[dict]:
     items = header.get("itemsReviewed") if isinstance(header, dict) else None
 
     if isinstance(items, list) and items:
-        return [item for item in items if isinstance(item, dict)]
+        entries = [item for item in items if isinstance(item, dict)]
+        if not entries:
+            # Present but unreadable is a shape change, not a quiet week.
+            raise StateShapeError("itemsReviewed held no objects")
+        return entries
 
     # Wrapped to match the itemsReviewed shape, carrying the header's own
     # title across so the fallback can stand on its own when a page has no
@@ -74,7 +108,10 @@ def _reviewed_items(review: dict) -> list[dict]:
     header_props = dig(review, "headerProps")
     return [{
         "musicRating": dig(header_props, "musicRating"),
-        "dangerousHed": header_props.get("dangerousHed"),
+        # headerProps.dangerousHed is raw HTML in every captured review
+        # ('<em>Train on the Island</em>'); this is exactly the path that
+        # runs when there is no ld+json to read the album from.
+        "dangerousHed": strip_html(header_props.get("dangerousHed")),
     }]
 
 
@@ -106,7 +143,44 @@ def _split_name(name: str) -> tuple[str, str] | None:
     return (artist, album) if artist and album else None
 
 
-def _artist_album(review: dict, entry: dict, html: str, single: bool):
+def _artists(review: dict) -> List[str]:
+    """Credited artists, in the order the page lists them."""
+    header = review.get("multiReviewHeaderProps") or {}
+    details = header.get("artistDetails") or []
+    names = [
+        (a.get("name") or "").strip()
+        for a in details
+        if isinstance(a, dict) and (a.get("name") or "").strip()
+    ]
+    if names:
+        return names
+    fallback = (review.get("headerProps") or {}).get("artists") or []
+    return [
+        (a.get("name") or "").strip()
+        for a in fallback
+        if isinstance(a, dict) and (a.get("name") or "").strip()
+    ]
+
+
+def _artist_for(artists: List[str], index: int, total: int) -> Optional[str]:
+    """The artist credited with the album at `index`.
+
+    `itemsReviewed` carries no artist field, so a multi-album review has
+    to be attributed by position. One artist covers every album on the
+    page; equal counts are paired by index. Anything else is ambiguous
+    and becomes a Problem rather than a guess -- and a wrong pairing
+    still degrades safely, since scoring takes the weaker of the artist
+    and album similarity and drops it below threshold.
+    """
+    if len(artists) == 1:
+        return artists[0]
+    if len(artists) == total and total > 0:
+        return artists[index]
+    return None
+
+
+def _artist_album(review: dict, entry: dict, html: str, single: bool,
+                  index: int, total: int):
     """Resolve artist and album for one reviewed item.
 
     `ld+json` is preferred, per SPEC's rule that `ld+json` and RSS are the
@@ -121,21 +195,8 @@ def _artist_album(review: dict, entry: dict, html: str, single: bool):
             if split:
                 return split
 
-    album = (entry.get("dangerousHed") or "").strip() or None
-
-    # Reached via the headerProps fallback too, where multiReviewHeaderProps
-    # may be absent entirely -- so this must not assume it exists.
-    header = review.get("multiReviewHeaderProps")
-    artists = (header or {}).get("artistDetails") or []
-    artist = None
-    if isinstance(artists, list) and artists and isinstance(artists[0], dict):
-        artist = (artists[0].get("name") or "").strip() or None
-
-    if not artist:
-        names = review.get("headerProps", {}).get("artists") or []
-        if isinstance(names, list) and names and isinstance(names[0], dict):
-            artist = (names[0].get("name") or "").strip() or None
-
+    album = strip_html(entry.get("dangerousHed")) or None
+    artist = _artist_for(_artists(review), index, total)
     return (artist, album) if artist and album else None
 
 
@@ -161,6 +222,17 @@ def _body_candidates(review: dict, single: bool) -> tuple[str, ...]:
     return track_candidates(prose_blocks(children_of(body)))
 
 
+def _is_retrospective(entry: dict, item: FeedItem) -> bool:
+    """True if the album long predates the review that covers it."""
+    if item.published_at is None:
+        return False
+    try:
+        release_year = int(str(entry.get("releaseYear") or "").strip())
+    except ValueError:
+        return False
+    return item.published_at.year - release_year > RETROSPECTIVE_YEARS
+
+
 def parse(item: FeedItem, html: str) -> ParseResult:
     """Turn one review page into a Verdict per Best New Music album."""
     state = extract_state(html)
@@ -172,7 +244,7 @@ def parse(item: FeedItem, html: str) -> ParseResult:
     single = len(entries) == 1
     candidates = _body_candidates(review, single)
 
-    for entry in entries:
+    for index, entry in enumerate(entries):
         rating = entry.get("musicRating")
         if not isinstance(rating, dict):
             problems.append(Problem(reason="rating_missing", source_url=item.link))
@@ -183,12 +255,27 @@ def parse(item: FeedItem, html: str) -> ParseResult:
         if not rating.get("isBestNewMusic"):
             continue
 
-        names = _artist_album(review, entry, html, single)
+        names = _artist_album(review, entry, html, single, index, len(entries))
         if names is None:
             problems.append(Problem(reason="artist_album_unparsed", source_url=item.link))
             continue
 
         artist, album = names
+
+        # Backstop for a Sunday Review whose boilerplate was reworded and
+        # slipped past discovery. A Best New Music record is new, so a much
+        # older one on this path is a retrospective; send it to the bug
+        # queue rather than onto the playlist.
+        if _is_retrospective(entry, item):
+            problems.append(
+                Problem(
+                    reason="suspected_retrospective",
+                    source_url=item.link,
+                    artist=artist,
+                    album=album,
+                )
+            )
+            continue
         verdicts.append(
             Verdict(
                 source=NAME,

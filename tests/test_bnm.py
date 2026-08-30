@@ -142,16 +142,30 @@ def test_split_name_uses_the_first_separator(name, expected):
     "description, is_sunday",
     [
         ("Every Sunday, we revisit a significant album from the past.", True),
-        ("each week we look back at a significant album from the past", True),
+        ("  Each Sunday, Pitchfork takes an in-depth look...", True),
         ("Aldous Harding returns with her finest record yet.", False),
         ("", False),
+        # Ordinary reviews that a bare substring test wrongly excluded.
+        # The drop happened before the page was fetched, so it left no
+        # trace anywhere -- an invisible false positive.
+        ("The band has played the same club every Sunday since 2019.", False),
+        ("A tender record about the most significant album from the past "
+         "decade of UK rap.", False),
     ],
 )
 def test_sunday_reviews_are_excluded_at_discovery(description, is_sunday):
-    """Retrospectives on old albums must never reach the playlist."""
+    """Matched on the *opening* of the description, not anywhere in it."""
     item = FeedItem(link="https://pitchfork.com/reviews/albums/x/", description=description)
     assert bnm.is_sunday_review(item) is is_sunday
     assert bnm.select(item) is not is_sunday
+
+
+def test_discovery_drops_are_loggable():
+    """A drop that leaves no row is the one failure mode ruled out elsewhere."""
+    sunday = FeedItem(link="x", description="Each Sunday, Pitchfork takes...")
+    ordinary = FeedItem(link="x", description="A fine new record.")
+    assert bnm.skip_reason(sunday) == "sunday_review"
+    assert bnm.skip_reason(ordinary) is None
 
 
 def test_multi_album_review_uses_per_item_fields():
@@ -266,3 +280,152 @@ def test_sunday_review_would_be_dropped_by_the_bnm_filter_too(sunday_html):
     Review carrying the flag would still need the discovery filter.
     """
     assert bnm.parse(ITEM, sunday_html).verdicts == ()
+
+
+# --- fixes from adversarial QA --------------------------------------------
+
+
+def test_header_props_hed_is_html_in_every_real_review(
+    bnm_html, not_bnm_html, sunday_html
+):
+    """The field the fallback reads is raw HTML, not text.
+
+    `dangerous` is Condé Nast's own marker for that. Synthetic test data
+    used a plain string, which is why this went unnoticed.
+    """
+    from verdict.verso import dig, extract_state
+
+    for page in (bnm_html, not_bnm_html, sunday_html):
+        hed = dig(extract_state(page), "transformed", "review", "headerProps",
+                  "dangerousHed")
+        assert hed.startswith("<em>")
+
+
+def test_fallback_album_is_cleaned_of_markup():
+    """Otherwise '<em>Train on the Island</em>' reaches the search query."""
+    page = synthetic_page({
+        "headerProps": {
+            "musicRating": {"isBestNewMusic": True, "score": 9},
+            "artists": [{"name": "Aldous Harding"}],
+            "dangerousHed": "<em>Train on the Island</em>",
+        }
+    })
+    verdict = bnm.parse(ITEM, page).verdicts[0]
+    assert verdict.album == "Train on the Island"
+
+
+def test_entities_are_unescaped():
+    """`J Mascis Live at CBGB&#39;s` turns up in the wild."""
+    page = synthetic_page({
+        "multiReviewHeaderProps": {
+            "artistDetails": [{"name": "J Mascis"}],
+            "itemsReviewed": [{
+                "dangerousHed": "J Mascis Live at CBGB&#39;s",
+                "musicRating": {"isBestNewMusic": True, "score": 9},
+            }],
+        }
+    })
+    assert bnm.parse(ITEM, page).verdicts[0].album == "J Mascis Live at CBGB's"
+
+
+def test_multi_album_review_pairs_artists_by_position():
+    """itemsReviewed carries no artist field, so position is all there is."""
+    page = synthetic_page({
+        "multiReviewHeaderProps": {
+            "artistDetails": [{"name": "Artist One"}, {"name": "Artist Two"}],
+            "itemsReviewed": [
+                {"dangerousHed": "Record One",
+                 "musicRating": {"isBestNewMusic": True, "score": 9}},
+                {"dangerousHed": "Record Two",
+                 "musicRating": {"isBestNewMusic": True, "score": 9}},
+            ],
+        }
+    })
+    pairs = [(v.artist, v.album) for v in bnm.parse(ITEM, page).verdicts]
+    assert pairs == [("Artist One", "Record One"), ("Artist Two", "Record Two")]
+
+
+def test_one_artist_covers_every_album_on_the_page():
+    page = synthetic_page({
+        "multiReviewHeaderProps": {
+            "artistDetails": [{"name": "Only Artist"}],
+            "itemsReviewed": [
+                {"dangerousHed": "One",
+                 "musicRating": {"isBestNewMusic": True, "score": 9}},
+                {"dangerousHed": "Two",
+                 "musicRating": {"isBestNewMusic": True, "score": 9}},
+            ],
+        }
+    })
+    assert {v.artist for v in bnm.parse(ITEM, page).verdicts} == {"Only Artist"}
+
+
+def test_ambiguous_artist_counts_become_a_problem_not_a_guess():
+    page = synthetic_page({
+        "multiReviewHeaderProps": {
+            "artistDetails": [{"name": "A"}, {"name": "B"}, {"name": "C"}],
+            "itemsReviewed": [
+                {"dangerousHed": "One",
+                 "musicRating": {"isBestNewMusic": True, "score": 9}},
+                {"dangerousHed": "Two",
+                 "musicRating": {"isBestNewMusic": True, "score": 9}},
+            ],
+        }
+    })
+    result = bnm.parse(ITEM, page)
+    assert result.verdicts == ()
+    assert {p.reason for p in result.problems} == {"artist_album_unparsed"}
+
+
+def test_retrospective_that_slips_discovery_is_caught_at_parse():
+    """Backstop for reworded boilerplate.
+
+    A Best New Music record is new by definition, so a decade-old album on
+    this path is a retrospective. It goes to the bug queue, not the
+    playlist.
+    """
+    from datetime import datetime, timezone
+
+    page = synthetic_page({
+        "multiReviewHeaderProps": {
+            "artistDetails": [{"name": "Paradis"}],
+            "itemsReviewed": [{
+                "dangerousHed": "Recto Verso", "releaseYear": "2016",
+                "musicRating": {"isBestNewMusic": True, "score": 8.5},
+            }],
+        }
+    })
+    item = FeedItem(link="x", description="Reworded boilerplate.",
+                    published_at=datetime(2026, 8, 23, tzinfo=timezone.utc))
+    result = bnm.parse(item, page)
+    assert result.verdicts == ()
+    assert result.problems[0].reason == "suspected_retrospective"
+
+
+def test_a_current_release_is_not_flagged_retrospective():
+    from datetime import datetime, timezone
+
+    page = synthetic_page({
+        "multiReviewHeaderProps": {
+            "artistDetails": [{"name": "Aldous Harding"}],
+            "itemsReviewed": [{
+                "dangerousHed": "Train on the Island", "releaseYear": "2026",
+                "musicRating": {"isBestNewMusic": True, "score": 9},
+            }],
+        }
+    })
+    item = FeedItem(link="x", published_at=datetime(2026, 8, 23, tzinfo=timezone.utc))
+    assert len(bnm.parse(item, page).verdicts) == 1
+
+
+def test_unreadable_items_reviewed_is_a_shape_change_not_a_quiet_week():
+    """An empty ParseResult would read as 'no BNM this week'."""
+    from verdict.verso import StateShapeError
+
+    page = synthetic_page({
+        "multiReviewHeaderProps": {"artistDetails": [{"name": "A"}],
+                                   "itemsReviewed": ["not-a-dict"]},
+        "headerProps": {"musicRating": {"isBestNewMusic": True, "score": 9}},
+    })
+    with pytest.raises(StateShapeError):
+        bnm.parse(ITEM, page)

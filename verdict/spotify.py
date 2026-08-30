@@ -36,16 +36,40 @@ Transport = Callable[[str, str, dict, Optional[bytes]], Response]
 
 
 class SpotifyError(Exception):
-    """A request failed in a way retrying will not fix."""
+    """A request failed."""
+
+
+class TransientError(SpotifyError):
+    """A failure worth retrying: a reset connection, a timeout, DNS."""
+
+
+def header(headers: dict, name: str) -> Optional[str]:
+    """Case-insensitive header lookup.
+
+    HTTP field names are case-insensitive (RFC 9110) and HTTP/2 requires
+    them lowercased on the wire, so an exact-key lookup silently misses.
+    Done here rather than only in `urllib_transport` because `transport`
+    is an injection point and a caller's transport must be safe too.
+    """
+    target = name.lower()
+    for key, value in headers.items():
+        if key.lower() == target:
+            return value
+    return None
 
 
 def urllib_transport(method: str, url: str, headers: dict, body: bytes | None) -> Response:
     request = urllib.request.Request(url, data=body, headers=headers, method=method)
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
-            return response.status, dict(response.headers), response.read()
+            return response.status, _lower(response.headers), response.read()
     except urllib.error.HTTPError as exc:
-        return exc.code, dict(exc.headers or {}), exc.read()
+        # An HTTP error is still a response: status and body are meaningful.
+        return exc.code, _lower(exc.headers or {}), exc.read()
+
+
+def _lower(headers) -> Dict[str, str]:
+    return {str(k).lower(): v for k, v in headers.items()}
 
 
 @dataclass
@@ -79,15 +103,22 @@ class TokenProvider:
         body = urllib.parse.urlencode(
             {"grant_type": "refresh_token", "refresh_token": self.refresh_token}
         ).encode()
-        status, _, payload = self.transport(
-            "POST",
-            TOKEN_URL,
-            {
-                "Authorization": f"Basic {basic}",
-                "Content-Type": "application/x-www-form-urlencoded",
-            },
-            body,
-        )
+        try:
+            status, _, payload = self.transport(
+                "POST",
+                TOKEN_URL,
+                {
+                    "Authorization": f"Basic {basic}",
+                    "Content-Type": "application/x-www-form-urlencoded",
+                },
+                body,
+            )
+        except OSError as exc:
+            # URLError and socket.timeout are both OSError subclasses.
+            # Left retryable rather than fatal: a reset connection during
+            # a token refresh must not end the whole run.
+            raise TransientError(f"token refresh failed: {exc}") from exc
+
         if status != 200:
             raise SpotifyError(f"token refresh failed: HTTP {status} {payload[:200]!r}")
 
@@ -121,8 +152,19 @@ class Spotify:
             url = f"{url}?{urllib.parse.urlencode(params)}"
 
         for attempt in range(self.max_retries + 1):
-            headers = {"Authorization": f"Bearer {self.tokens.token()}"}
-            status, response_headers, payload = self.transport("GET", url, headers, None)
+            try:
+                request_headers = {"Authorization": f"Bearer {self.tokens.token()}"}
+                status, response_headers, payload = self.transport(
+                    "GET", url, request_headers, None
+                )
+            except (TransientError, OSError) as exc:
+                # A reset connection, timeout or DNS failure is transient.
+                # Nothing may escape as a bare OSError: SPEC requires the
+                # run to degrade to a logged row, never to crash.
+                if attempt < self.max_retries:
+                    self.sleep(2**attempt)
+                    continue
+                raise SpotifyError(f"GET {path}: {exc}") from exc
 
             if status == 200:
                 return json.loads(payload)
@@ -130,7 +172,7 @@ class Spotify:
             # Rate limited. Retry-After is in seconds and the API expects
             # it to be honoured rather than backed off arbitrarily.
             if status == 429 and attempt < self.max_retries:
-                self.sleep(float(response_headers.get("Retry-After", 1)))
+                self.sleep(float(header(response_headers, "Retry-After") or 1))
                 continue
 
             if status >= 500 and attempt < self.max_retries:

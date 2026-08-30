@@ -156,3 +156,107 @@ def test_credentials_are_not_in_the_repr():
     text = repr(token_provider())
     assert "secret" not in text and "refresh" not in text
     assert "client_id='id'" in text
+
+
+# --- header casing and transient failures ---------------------------------
+
+def test_retry_after_is_read_case_insensitively():
+    """HTTP/2 requires lowercase field names on the wire.
+
+    A case-sensitive lookup silently misses, sleeps 1s, burns every retry
+    in ~3s and hammers an endpoint that is already rate limiting us.
+    """
+    sleeps = []
+    spotify, _ = client(
+        [(429, {"retry-after": "30"}, b"{}"), (200, {}, {"ok": True})], sleeps
+    )
+    assert spotify.get("/x") == {"ok": True}
+    assert sleeps == [30.0]
+
+
+def test_retry_after_still_works_title_cased():
+    sleeps = []
+    spotify, _ = client(
+        [(429, {"Retry-After": "12"}, b"{}"), (200, {}, {"ok": True})], sleeps
+    )
+    spotify.get("/x")
+    assert sleeps == [12.0]
+
+
+def test_urllib_transport_lowercases_header_keys():
+    import email.message
+
+    message = email.message.Message()
+    message["Retry-After"] = "30"
+    from verdict.spotify import _lower, header
+
+    assert _lower(message) == {"retry-after": "30"}
+    assert header({"RETRY-AFTER": "9"}, "Retry-After") == "9"
+    assert header({}, "Retry-After") is None
+
+
+def test_connection_errors_are_retried_then_wrapped():
+    """A bare OSError must never escape: SPEC forbids crashing the run."""
+    import urllib.error
+
+    class Flaky:
+        def __init__(self, failures):
+            self.failures = failures
+            self.calls = 0
+
+        def __call__(self, *args):
+            self.calls += 1
+            if self.calls <= self.failures:
+                raise urllib.error.URLError("Connection reset by peer")
+            return 200, {}, b'{"ok": true}'
+
+    sleeps = []
+    flaky = Flaky(2)
+    spotify = Spotify(token_provider(), transport=flaky, sleep=sleeps.append)
+    assert spotify.get("/x") == {"ok": True}
+    assert sleeps == [1, 2]
+
+    persistent = Spotify(token_provider(), transport=Flaky(99), sleep=lambda _: None)
+    with pytest.raises(SpotifyError, match="Connection reset"):
+        persistent.get("/x")
+
+
+def test_timeouts_are_transient_too():
+    import socket
+
+    def always_timeout(*args):
+        raise socket.timeout("timed out")
+
+    spotify = Spotify(token_provider(), transport=always_timeout, sleep=lambda _: None)
+    with pytest.raises(SpotifyError):
+        spotify.get("/x")
+
+
+def test_token_network_failure_is_transient_not_fatal():
+    import urllib.error
+
+    from verdict.spotify import TransientError
+
+    def refuse(*args):
+        raise urllib.error.URLError("dns failure")
+
+    with pytest.raises(TransientError):
+        token_provider(refuse).token()
+
+
+def test_token_network_failure_is_retried_by_get():
+    """A reset during token refresh must not end the run."""
+    import urllib.error
+
+    calls = {"n": 0}
+
+    def flaky_token(*args):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise urllib.error.URLError("reset")
+        return 200, {}, json.dumps({"access_token": "t", "expires_in": 3600}).encode()
+
+    provider = TokenProvider("id", "secret", "refresh", transport=flaky_token)
+    api = FakeTransport([(200, {}, {"ok": True})])
+    spotify = Spotify(provider, transport=api, sleep=lambda _: None)
+    assert spotify.get("/x") == {"ok": True}

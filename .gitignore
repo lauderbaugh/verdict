@@ -15,7 +15,7 @@ htmlcov/
 
 # Secrets. The refresh token from bootstrap.py belongs in CI secrets,
 # never in the repo.
-.env
+.env*
 *.env
 
 # NOTE: log/ is deliberately NOT ignored. The NDJSON history is the

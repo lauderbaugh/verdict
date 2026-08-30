@@ -301,3 +301,37 @@ the count of albums seen.
 Dedup already merges verdicts before resolution, so the hook is the merge step —
 it currently keeps the richer verdict and discards the other, where it could
 instead record that both named the same track.
+
+### Consensus-weighted track counts
+
+Agreement should influence **how many** tracks an album gets, not only which
+ones. Today every album gets the same 2-4 regardless of how many publications
+thought it mattered, so playlist space is uniform where editorial attention is
+not.
+
+The shape:
+
+- **Floor of 2** for an album named by a single source. Unchanged from today.
+- **Up to 4** only where multiple sources independently cover the same album in
+  the same window.
+
+That makes playlist length track editorial consensus, and gives a second source
+a job beyond redundancy: an album two publications both reached for earns more
+room than one that only appeared in a single roundup.
+
+**Where the hook goes.** `dedupe_verdicts()` in `run.py` already collapses the
+same album arriving from more than one source, keeping the richer verdict and
+discarding the other. That discard is exactly where the agreement is currently
+lost. The merge should record the count of independent sources on the surviving
+verdict, and `select()` should read it in place of the fixed `MIN_TRACKS`.
+
+Note this only works if dedup stays keyed on the album rather than the source —
+which it is, on normalized artist and album.
+
+**Corroboration need not be a full source.** Investigation on 2026-08-31 found
+that Stereogum publishes a weekly "Other albums of note out this week" list of
+~126 releases which overlaps a Pitchfork roundup at 12 of 13. One cheap fetch a
+week can therefore corroborate almost every Pitchfork pick while adding no
+tracks of its own. A corroboration feed and a track-contributing source are
+different roles, and the design should not assume every source has to be both.
+See `docs/second-source-candidates.md`.

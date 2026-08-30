@@ -77,6 +77,9 @@ class Journal:
         album_playcount: Optional[int] = None,
         rule: Optional[str] = None,
         position: Optional[int] = None,
+        corroborated_by_list: Optional[bool] = None,
+        corroborated_editorially: Optional[bool] = None,
+        editorial_tier: Optional[str] = None,
         run_date: Optional[date] = None,
     ) -> None:
         """Record a track added to the playlist.
@@ -105,6 +108,14 @@ class Journal:
                 "album_playcount": album_playcount,
                 "rule": rule,
                 "position": position,
+                # Corroboration from a publication contributing no tracks.
+                # Kept apart on purpose: appearing on a comprehensive
+                # weekly list is a calendar fact, being another
+                # publication's own pick is agreement. Nothing reads
+                # either yet -- they are here to be measured.
+                "corroborated_by_list": corroborated_by_list,
+                "corroborated_editorially": corroborated_editorially,
+                "editorial_tier": editorial_tier,
                 "run_date": (run_date or date.today()).isoformat(),
             },
         )

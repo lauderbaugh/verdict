@@ -162,14 +162,19 @@ def resolve(client: Spotify, verdict: Verdict, lastfm=None) -> Outcome:
 
     matched = _match_tracks(verdict.named_tracks, tracks)
 
-    # Last.fm is consulted only when the source named too few. A source
-    # that named enough has already made the judgement, and its own pick
-    # beats an aggregate one.
-    plays = None
+    # Deferred, not fetched: select() calls this only if it reaches the
+    # Last.fm rung, so an album answered by its title track costs no
+    # requests. A source that named enough never gets here either.
+    fetch_plays = None
     if lastfm is not None and len(matched) < MIN_TRACKS:
-        plays = lastfm.album_plays(verdict.artist, verdict.album)
+        fetch_plays = lambda: lastfm.album_plays(verdict.artist, verdict.album)  # noqa: E731
 
-    chosen = select(matched, tracks, plays)
+    # The album's real name from Spotify, not the verdict's -- the
+    # title-track match should be against what the record is actually
+    # called, and resolution may have corrected a critic's spelling.
+    chosen = select(
+        matched, tracks, album_name=album.get("name", ""), fetch_plays=fetch_plays
+    )
     if not chosen:
         return Unresolved(verdict, "no_selectable_tracks")
 

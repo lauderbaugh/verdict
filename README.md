@@ -23,7 +23,7 @@ Scores are never normalized across publications.
 
 ### Sources
 
-Both are Pitchfork, for now. `docs/second-source-candidates.md` surveys others.
+`docs/second-source-candidates.md` surveys others.
 
 - **`pitchfork_roundup`** — the weekly "N New Albums You Should Listen to Now",
   ~13 albums a week. The primary source; it covers records that never get a full
@@ -31,6 +31,16 @@ Both are Pitchfork, for now. `docs/second-source-candidates.md` surveys others.
 - **`pitchfork_bnm`** — Best New Music, ~1-3 a week. Filtered on the editorial
   flag, never on score: a verified 8.0 was not Best New Music while 8.6 and 9
   were.
+- **`npr_new_music_friday`** — ~10 albums a week, read straight from the podcast
+  show notes with no page fetch. Names no tracks, so its albums always reach the
+  fallback chain.
+
+Stereogum is fetched once a week but is **not** a source: it contributes no
+tracks, only evidence about albums the sources already found. Two separate
+signals land on each track in the log — whether the album appeared on
+Stereogum'"'"'s comprehensive weekly list (mostly a calendar fact) and whether it
+was Stereogum'"'"'s own Album Of The Week (real agreement). Nothing consumes either
+yet.
 
 ### Selecting tracks
 
@@ -38,9 +48,12 @@ Two to four tracks per album, chosen in this order:
 
 1. **Named** — tracks the critic named, kept only if they match the real
    tracklist. Capped at 4, in the order the writeup named them.
-2. **Last.fm** — if fewer than 2 survived, fill to 2 by play count. Skipped
-   entirely when the critic named enough.
-3. **Positional** — if Last.fm is unavailable or the album is too sparsely
+2. **Title track** — the track sharing the album's name, if there is one. Above
+   play counts on purpose: the artist naming the record after a track beats a
+   number inferred from listening.
+3. **Last.fm** — fill to 2 by play count. Skipped entirely when the critic named
+   enough or the title track already closed the gap.
+4. **Positional** — if Last.fm is unavailable or the album is too sparsely
    played. Prefers tracks 2 and 4, never defaults to track 1, and skips anything
    under 90 seconds when a longer track is available.
 

@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
+from verdict.corroborate import Corroboration, apply as corroborate, fetch_week
 from verdict.journal import Journal
 from verdict.models import Verdict
 from verdict.playlist.window import WINDOW_DAYS, plan, read_items
@@ -49,6 +50,8 @@ class RunReport:
     removed: int = 0
     skipped: int = 0
     problems: int = 0
+    corroborated_by_list: int = 0
+    corroborated_editorially: int = 0
     errors: List[str] = field(default_factory=list)
 
 
@@ -149,6 +152,7 @@ def execute(
     now: Optional[datetime] = None,
     run_date: Optional[date] = None,
     lastfm=None,
+    corroboration: bool = True,
 ) -> RunReport:
     """One complete weekly run."""
     now = now or datetime.now(timezone.utc)
@@ -160,7 +164,16 @@ def execute(
         verdicts.extend(gather(source, journal, fetcher, sleep, run_date))
 
     verdicts = dedupe_verdicts(verdicts)
+
+    # One fetch, purely instrumentation. Stereogum contributes no tracks;
+    # it says whether anyone else noticed these albums. Any failure
+    # degrades to no corroboration rather than costing the run.
+    week = fetch_week(fetcher, journal, run_date) if corroboration else Corroboration()
+    verdicts = [corroborate(v, week) for v in verdicts]
+
     report.verdicts = len(verdicts)
+    report.corroborated_editorially = sum(1 for v in verdicts if v.corroborated_editorially)
+    report.corroborated_by_list = sum(1 for v in verdicts if v.corroborated_by_list)
 
     resolutions: List[Resolution] = []
     for verdict in verdicts:
@@ -241,7 +254,11 @@ def execute(
                     score=verdict.score, match_confidence=track.confidence,
                     selection=track.selection, playcount=track.playcount,
                     album_playcount=track.album_playcount, rule=track.rule,
-                    position=track.position, run_date=run_date,
+                    position=track.position,
+                    corroborated_by_list=verdict.corroborated_by_list,
+                    corroborated_editorially=verdict.corroborated_editorially,
+                    editorial_tier=verdict.editorial_tier,
+                    run_date=run_date,
                 )
             report.added = len(decision.add)
         except SpotifyError as exc:
@@ -294,7 +311,9 @@ def main() -> int:
     print(
         f"verdicts={report.verdicts} resolved={report.resolved} "
         f"unresolved={report.unresolved} added={report.added} "
-        f"removed={report.removed} skipped={report.skipped}"
+        f"removed={report.removed} skipped={report.skipped} "
+        f"corroborated={report.corroborated_by_list} "
+        f"editorial={report.corroborated_editorially}"
     )
     for error in report.errors:
         print(f"error: {error}", file=sys.stderr)

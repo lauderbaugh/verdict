@@ -45,6 +45,15 @@ _SUFFIX_RE = re.compile(
 #: the joined string matches neither entry on its own.
 _CREDIT_SPLIT_RE = re.compile(r"\s*(?:/|&|,|\band\b|\bx\b|\bwith\b)\s*", re.IGNORECASE)
 
+#: Part and volume markers, which sit on either the album or the track
+#: and rarely on both: "Sable, Fable Pt. 1" against a track "Sable,
+#: Fable". Separate from _SUFFIX_RE because these follow a plain space
+#: rather than a dash or bracket.
+_PART_RE = re.compile(
+    r"\s*[,:]?\s*\b(?:pt|part|vol|volume)\b\.?\s*(?:\d+|[ivx]+)\s*$",
+    re.IGNORECASE,
+)
+
 _PUNCT_RE = re.compile(r"[^\w\s]", re.UNICODE)
 _WS_RE = re.compile(r"\s+")
 
@@ -64,7 +73,7 @@ def normalize(name: str) -> str:
 
 def base_form(name: str) -> str:
     """The name with a trailing qualifier removed, normalized."""
-    return normalize(_SUFFIX_RE.sub("", name))
+    return normalize(_PART_RE.sub("", _SUFFIX_RE.sub("", name)))
 
 
 def similarity(left: str, right: str) -> float:

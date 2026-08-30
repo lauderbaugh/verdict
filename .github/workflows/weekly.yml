@@ -1,0 +1,58 @@
+name: weekly
+
+on:
+  schedule:
+    # Mondays 09:00 UTC, after the Friday roundup has settled.
+    - cron: "0 9 * * 1"
+  workflow_dispatch:
+
+# Only one run at a time: two concurrent runs would both read the
+# playlist, both decide to add, and duplicate the week.
+concurrency:
+  group: verdict-weekly
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The PAT must be on the checkout too, or the later push uses
+          # the default token and the commit is not user activity.
+          token: ${{ secrets.LOG_COMMIT_PAT }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - run: pip install -e .
+
+      - name: Run
+        env:
+          SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
+          SPOTIFY_CLIENT_SECRET: ${{ secrets.SPOTIFY_CLIENT_SECRET }}
+          SPOTIFY_REFRESH_TOKEN: ${{ secrets.SPOTIFY_REFRESH_TOKEN }}
+          SPOTIFY_PLAYLIST_ID: ${{ secrets.SPOTIFY_PLAYLIST_ID }}
+        run: python -m verdict.run
+
+      # Committed with the PAT rather than GITHUB_TOKEN. Scheduled
+      # workflows auto-disable after 60 days of repository inactivity, and
+      # whether bot commits reset that timer is undocumented and has
+      # changed before. A PAT push is unambiguously user activity.
+      # always(): a failed run is exactly when unmatched.ndjson matters, and
+      # without this the workflow stops at the failed step and the bug
+      # queue explaining the failure is discarded.
+      - name: Commit logs
+        if: always()
+        run: |
+          git config user.name "verdict"
+          git config user.email "lauderbaugh@gmail.com"
+          git add log/
+          if git diff --staged --quiet; then
+            echo "no log changes"
+          else
+            git commit -m "log: run $(date -u +%Y-%m-%d)"
+            git push
+          fi

@@ -155,13 +155,35 @@ def main() -> int:
         "/me/playlists", tokens["access_token"], {"name": PLAYLIST_NAME, "public": True}
     )
 
+    # Verified before printing: a token that cannot be exchanged is worth
+    # discovering here rather than in a failed weekly run.
+    check = _post(
+        TOKEN_URL,
+        {"grant_type": "refresh_token", "refresh_token": refresh_token},
+        {
+            "Authorization": f"Basic {basic}",
+            "Content-Type": "application/x-www-form-urlencoded",
+        },
+    )
+    if not check.get("access_token"):
+        raise SystemExit(f"refresh token did not work on first use: {check}")
+
+    # Values are printed alone on their own line, NOT as NAME=value: a
+    # whole-line copy would put the prefix inside the secret, and Spotify
+    # then answers 'invalid_grant: Invalid refresh token'.
     print("\n" + "=" * 66)
-    print("Add these as GitHub secrets. The refresh token is long-lived --")
-    print("treat it like a password and keep it out of the repo.")
+    print("Add these as GitHub repository secrets.")
+    print("Copy each VALUE ONLY -- not the name, no surrounding whitespace.")
+    print("The refresh token is long-lived: treat it like a password.")
     print("=" * 66)
-    print(f"SPOTIFY_REFRESH_TOKEN={refresh_token}")
-    print(f"SPOTIFY_PLAYLIST_ID={playlist['id']}")
+    print("\nSecret name:  SPOTIFY_REFRESH_TOKEN")
+    print("Value:")
+    print(refresh_token)
+    print("\nSecret name:  SPOTIFY_PLAYLIST_ID")
+    print("Value:")
+    print(playlist["id"])
     print(f"\nPlaylist: {playlist.get('external_urls', {}).get('spotify', '')}")
+    print("\nVerified: the refresh token was exchanged successfully once.")
     return 0
 
 

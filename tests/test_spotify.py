@@ -77,7 +77,8 @@ def test_token_is_cached_until_it_nears_expiry():
 
 
 def test_token_failure_is_an_error_not_a_silent_none():
-    transport = FakeTransport([(400, {}, b'{"error":"invalid_grant"}')])
+    """A 5xx from the token endpoint is a plain failure, not an auth one."""
+    transport = FakeTransport([(500, {}, b"upstream boom")])
     with pytest.raises(SpotifyError, match="token refresh failed"):
         token_provider(transport).token()
 
@@ -371,3 +372,27 @@ def test_write_failures_raise_with_the_method_named():
     spotify, _ = client([(403, {}, b'{"error":"forbidden"}')])
     with pytest.raises(SpotifyError, match="POST /playlists"):
         spotify.add_items("pl1", ["spotify:track:a"])
+
+
+def test_invalid_grant_is_an_auth_error_not_a_generic_failure():
+    """Retrying cannot fix a bad credential, and it fails every request.
+
+    Seen live: one bad SPOTIFY_REFRESH_TOKEN produced a row per verdict,
+    each a fresh pointless round trip to the token endpoint.
+    """
+    from verdict.spotify import AuthError
+
+    transport = FakeTransport([
+        (400, {}, b'{"error":"invalid_grant","error_description":"Invalid refresh token"}')
+    ])
+    with pytest.raises(AuthError, match="bootstrap"):
+        token_provider(transport).token()
+
+
+def test_auth_errors_are_not_retried():
+    from verdict.spotify import AuthError
+
+    transport = FakeTransport([(401, {}, b'{"error":"invalid_client"}')] )
+    with pytest.raises(AuthError):
+        token_provider(transport).token()
+    assert len(transport.calls) == 1

@@ -279,3 +279,27 @@ def test_a_healthy_run_still_ages_out(tmp_path):
     assert set(spotify.removed) == {"spotify:track:29", "spotify:track:30",
                                     "spotify:track:35"}
     assert not report.errors
+
+
+def test_a_bad_credential_stops_the_run_once(tmp_path):
+    """One cause, one row -- not one row per album.
+
+    Seen live: an invalid refresh token produced 14 identical rows and 14
+    round trips, burying the single real cause under copies of itself.
+    """
+    from verdict.spotify import AuthError
+
+    class Unauthorised(FakeSpotify):
+        def __init__(self):
+            super().__init__()
+            self.attempts = 0
+
+        def search_albums(self, artist, album):
+            self.attempts += 1
+            raise AuthError("token refresh rejected: HTTP 400")
+
+    spotify = Unauthorised()
+    report = _run(tmp_path, spotify)
+    assert spotify.attempts == 1
+    assert spotify.added == [] and spotify.removed == []
+    assert report.errors and "token refresh rejected" in report.errors[0]

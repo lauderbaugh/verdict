@@ -48,7 +48,10 @@ def main() -> int:
     )
 
     ok = True
-    playlist = client.create_playlist("verdict scratch (safe to delete)", public=False)
+    # Public, not private: bootstrap requests playlist-modify-public only,
+    # and creating a private playlist needs playlist-modify-private. It is
+    # unfollowed at the end of this run either way.
+    playlist = client.create_playlist("verdict scratch (safe to delete)", public=True)
     playlist_id = playlist["id"]
     print(f"\nscratch playlist: {playlist_id}\n")
 

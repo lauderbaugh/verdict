@@ -76,7 +76,15 @@ def _authorize(client_id: str) -> str:
 
     parsed = urllib.parse.urlparse(REDIRECT_URI)
     server = http.server.HTTPServer((parsed.hostname, parsed.port), _CallbackHandler)
-    thread = threading.Thread(target=server.handle_request, daemon=True)
+
+    def serve_until_callback():
+        # Not handle_request(): that serves exactly one request, and a
+        # stray favicon or preflight would consume it while the real
+        # callback went unanswered.
+        while not _CallbackHandler.result:
+            server.handle_request()
+
+    thread = threading.Thread(target=serve_until_callback, daemon=True)
     thread.start()
 
     print("Opening your browser to authorise. If it does not open, visit:\n")

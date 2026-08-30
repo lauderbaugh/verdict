@@ -8,6 +8,7 @@ run, on the same principle as StateShapeError.
 from __future__ import annotations
 
 import json
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -65,7 +66,12 @@ class Lastfm:
         self,
         api_key: str,
         fetch: Callable[[str], bytes] = urllib_get,
-        sleep: Callable[[float], None] = lambda _: None,
+        # time.sleep, not a no-op: the production call site constructs
+        # Lastfm(key) with no sleep, so a no-op default silently removed
+        # the pacing below and fired every track.getInfo as fast as the
+        # socket allowed. An omitted argument should fail slow, not fail
+        # unthrottled. Tests inject the no-op explicitly.
+        sleep: Callable[[float], None] = time.sleep,
         min_album_playcount: int = MIN_ALBUM_PLAYCOUNT,
     ) -> None:
         self.api_key = api_key

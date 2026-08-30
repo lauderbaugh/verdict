@@ -61,6 +61,12 @@ log/           NDJSON history
 `score` (optional, source-native — do NOT normalize across publications),
 `named_tracks` (list, often empty).
 
+`score` is loosely typed on purpose. Pitchfork publishes a number and Paste
+publishes a letter grade, so a Paste verdict carries `"B-"` rather than a number
+invented to stand for it. Nothing does arithmetic on the field — it is tested
+for presence and logged. (AV Club dropped grades entirely after the same company
+acquired it; Paste kept them.)
+
 Two adapters planned. Build `pitchfork_roundup` first and completely; add
 `pitchfork_bnm` second and let the second one force the shared interface.
 

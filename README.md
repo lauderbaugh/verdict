@@ -34,6 +34,9 @@ Scores are never normalized across publications.
 - **`npr_new_music_friday`** — ~10 albums a week, read straight from the podcast
   show notes with no page fetch. Names no tracks, so its albums always reach the
   fallback chain.
+- **`paste`** — ~5-7 albums a week from an HTML index, no feed. Names tracks in
+  prose, so its albums mostly resolve on named tracks, and carries a letter
+  grade which is kept as written.
 
 Stereogum is fetched once a week but is **not** a source: it contributes no
 tracks, only evidence about albums the sources already found. Two separate

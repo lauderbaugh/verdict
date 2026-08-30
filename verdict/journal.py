@@ -26,7 +26,7 @@ class Journal:
 
     #: The only files this class may write. Guards the path built below,
     #: since a stream name flows straight into a filename.
-    STREAMS = frozenset({"additions", "removals", "unmatched"})
+    STREAMS = frozenset({"additions", "removals", "skips", "unmatched"})
 
     def append(self, stream: str, record: dict[str, Any]) -> None:
         """Append one record to `log/{stream}.ndjson`."""
@@ -77,6 +77,9 @@ class Journal:
         album_playcount: Optional[int] = None,
         rule: Optional[str] = None,
         position: Optional[int] = None,
+        corroborated_by_list: Optional[bool] = None,
+        corroborated_editorially: Optional[bool] = None,
+        editorial_tier: Optional[str] = None,
         run_date: Optional[date] = None,
     ) -> None:
         """Record a track added to the playlist.
@@ -105,6 +108,14 @@ class Journal:
                 "album_playcount": album_playcount,
                 "rule": rule,
                 "position": position,
+                # Corroboration from a publication contributing no tracks.
+                # Kept apart on purpose: appearing on a comprehensive
+                # weekly list is a calendar fact, being another
+                # publication's own pick is agreement. Nothing reads
+                # either yet -- they are here to be measured.
+                "corroborated_by_list": corroborated_by_list,
+                "corroborated_editorially": corroborated_editorially,
+                "editorial_tier": editorial_tier,
                 "run_date": (run_date or date.today()).isoformat(),
             },
         )
@@ -116,6 +127,34 @@ class Journal:
             {
                 "uri": uri,
                 "aged_out_date": (aged_out_date or date.today()).isoformat(),
+            },
+        )
+
+    def skip(
+        self,
+        *,
+        source: str,
+        artist: str,
+        album: str,
+        track: str,
+        reason: str,
+        run_date: Optional[date] = None,
+    ) -> None:
+        """Record a track the selection chain declined to consider.
+
+        Not the bug queue: a skipped interlude is the filter working.
+        Kept separate so the false-positive rate can be read without
+        wading through real failures.
+        """
+        self.append(
+            "skips",
+            {
+                "source": source,
+                "artist": artist,
+                "album": album,
+                "track": track,
+                "reason": reason,
+                "run_date": (run_date or date.today()).isoformat(),
             },
         )
 

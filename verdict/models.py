@@ -40,3 +40,17 @@ class Verdict:
     #: at parse time, and it is the signal consensus-weighted track
     #: counts would need (see SPEC.md, Later).
     editorial_tier: str | None = None
+
+    #: Corroboration from a publication that contributes no tracks of its
+    #: own. Two separate claims, never collapsed into one flag:
+    #:
+    #: `corroborated_by_list` -- the album appeared on a comprehensive
+    #: weekly release list. Mostly a calendar fact; it proves the record
+    #: came out, not that anyone judged it.
+    #:
+    #: `corroborated_editorially` -- another publication made this album
+    #: its own editorial pick. This is real agreement.
+    #:
+    #: Nothing reads either yet (SPEC.md, Later).
+    corroborated_by_list: bool = False
+    corroborated_editorially: bool = False

@@ -191,10 +191,46 @@ Target 2-4 tracks per album. Never the whole album — at ~13 albums/week over a
 
 1. **Named.** Tracks the source named that validate against the real tracklist.
    Cap at 4, keeping the first 4 in prose order.
-2. **Last.fm.** Only if step 1 yields fewer than 2. Fill the remaining slots to
-   the minimum of 2, ranked by play count, skipping anything already selected.
-   Never called when a source named enough — the source has already judged.
-3. **Positional.** If Last.fm is unavailable or too sparse.
+2. **Title track.** If step 1 yields fewer than 2, the track sharing the album's
+   name, if one exists. Above Last.fm deliberately: an artist naming the record
+   after a track is their own signal, and it beats a play count inferred from
+   listening data — those skew hard toward whichever single circulated first
+   (a verified 7.8x above the album total).
+
+   Matched fuzzily, so punctuation, casing, edition suffixes and part markers
+   ("Pt. 1" on one side but not the other) do not lose it.
+
+   **Overrides the short-track rule.** A title track under 90 seconds is still
+   taken. That rule exists to avoid interludes, and a title track is deliberate
+   in a way an interlude is not. Logged with `rule: short_title_track` so how
+   often it fires stays visible.
+3. **Last.fm.** Only if still short. Fill to the minimum of 2, ranked by play
+   count, skipping anything already selected. Never consulted when a source
+   named enough, and not consulted at all when the title track closed the gap —
+   the lookup is deferred, since one album costs a call plus up to fifteen more.
+4. **Positional.** If Last.fm is unavailable or too sparse.
+
+**Interludes are skipped in the fallback rungs.** Titles that announce the track
+is not a main one — `Intro`, `Skit 2`, `Money Trees (Interlude)`, `Alright -
+Skit` — are kept out of the title-track, Last.fm and positional steps.
+
+Matched as a standalone *label*, not as a word anywhere in the title. Word
+boundaries alone are insufficient: `\binterlude\b` matches "Interlude City",
+which is a song title rather than an interlude. A label is the whole title,
+bracketed, or dash-suffixed.
+
+Two rules:
+
+- **Never applied to named tracks.** If a critic writes about an interlude that
+  is a deliberate pick, and it survives.
+- **A labelled title track is refused**, unlike the sub-90-second case. A short
+  title track may still be the record's centrepiece; an explicit "(Interlude)"
+  is the artist saying it is not.
+
+If filtering would leave fewer than the floor of 2, the filter relaxes rather
+than returning fewer, and the surviving tracks record
+`interlude_filter_relaxed`. Skips are written to `log/skips.ndjson` so the
+false-positive rate can be read without wading through the bug queue.
 
 `album.getInfo` gives an album-level `playcount`, which is the sparsity gate, but
 its track objects carry only `rank`, `name`, `duration` and `url` — **no

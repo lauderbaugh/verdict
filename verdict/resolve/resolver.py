@@ -8,7 +8,7 @@ actual resolved album to survive.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Optional, Sequence, Tuple, Union
 
 from verdict.models import Verdict
@@ -24,6 +24,7 @@ from verdict.resolve.selection import (
     MIN_TRACKS,
     NAMED,
     ResolvedTrack,
+    interludes,
     select,
 )
 from verdict.spotify import AuthError, Spotify, SpotifyError
@@ -38,6 +39,10 @@ class Resolution:
     album_name: str
     tracks: Tuple[ResolvedTrack, ...]
     used_fallback: bool = False
+    #: Titles the interlude filter kept out of the fallback rungs.
+    #: Recorded so the false-positive rate is visible; a track a source
+    #: named explicitly never appears here.
+    skipped_interludes: Tuple[str, ...] = field(default_factory=tuple)
 
 
 @dataclass(frozen=True)
@@ -162,23 +167,32 @@ def resolve(client: Spotify, verdict: Verdict, lastfm=None) -> Outcome:
 
     matched = _match_tracks(verdict.named_tracks, tracks)
 
-    # Last.fm is consulted only when the source named too few. A source
-    # that named enough has already made the judgement, and its own pick
-    # beats an aggregate one.
-    plays = None
+    # Deferred, not fetched: select() calls this only if it reaches the
+    # Last.fm rung, so an album answered by its title track costs no
+    # requests. A source that named enough never gets here either.
+    fetch_plays = None
     if lastfm is not None and len(matched) < MIN_TRACKS:
-        plays = lastfm.album_plays(verdict.artist, verdict.album)
+        fetch_plays = lambda: lastfm.album_plays(verdict.artist, verdict.album)  # noqa: E731
 
-    chosen = select(matched, tracks, plays)
+    # The album's real name from Spotify, not the verdict's -- the
+    # title-track match should be against what the record is actually
+    # called, and resolution may have corrected a critic's spelling.
+    chosen = select(
+        matched, tracks, album_name=album.get("name", ""), fetch_plays=fetch_plays
+    )
     if not chosen:
         return Unresolved(verdict, "no_selectable_tracks")
 
+    picked = {t.uri for t in chosen}
     return Resolution(
         verdict=verdict,
         album_id=album_id,
         album_name=album.get("name", ""),
         tracks=tuple(chosen),
         used_fallback=any(t.selection != NAMED for t in chosen),
+        skipped_interludes=tuple(
+            t.get("name", "") for t in interludes(tracks) if t.get("uri") not in picked
+        ),
     )
 
 

@@ -3,8 +3,9 @@
 Three steps, in order, per album:
 
 1. Tracks the source named, validated against the real tracklist.
-2. If that yields fewer than the minimum, fill from Last.fm play counts.
-3. If Last.fm is unavailable or too sparse, fill positionally.
+2. If that yields fewer than the minimum, the title track if one exists.
+3. If still short, fill from Last.fm play counts.
+4. If Last.fm is unavailable or too sparse, fill positionally.
 
 Every track records how it was chosen, so the selection can be judged
 from `additions.ndjson` rather than guessed at.
@@ -12,8 +13,9 @@ from `additions.ndjson` rather than guessed at.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence, Tuple
 
 #: Two is enough to represent an album; four is where a 4-week window
 #: stops being a playlist and starts being a discography.
@@ -27,7 +29,23 @@ SHORT_TRACK_MS = 90_000
 #: only reached when nothing longer is left.
 PREFERRED_POSITIONS = (2, 4)
 
+#: Titles that announce the track is not a main one.
+_INTERLUDE_MARKERS = r"intro|outro|interlude|skit|prelude|reprise"
+
+#: Matched as a standalone *label*, not as a word anywhere in the title.
+#: Word boundaries alone are not enough -- `\binterlude\b` matches
+#: "Interlude City", which is a real song title rather than an interlude.
+#: A label is the whole title, or bracketed, or dash-suffixed.
+_INTERLUDE_RE = re.compile(
+    rf"""(?xi)
+      ^\s*(?:{_INTERLUDE_MARKERS})\b[\s.\-–—:]*\d*\s*$
+    | [\(\[]\s*(?:{_INTERLUDE_MARKERS})\b[^)\]]*[\)\]]
+    | [\-–—]\s*(?:{_INTERLUDE_MARKERS})\b[\s.\d]*$
+    """
+)
+
 NAMED = "named"
+TITLE_TRACK = "title_track"
 LASTFM = "lastfm"
 POSITIONAL = "positional"
 
@@ -44,10 +62,33 @@ class ResolvedTrack:
     #: lastfm
     playcount: Optional[int] = None
     album_playcount: Optional[int] = None
-    #: positional
+    #: positional, and the title track when it overrode the short-track rule
     rule: Optional[str] = None
     #: 1-indexed position on the album, for any selection method
     position: Optional[int] = None
+
+
+def is_interlude(track: dict) -> bool:
+    """True if the title announces the track is not a main one."""
+    return bool(_INTERLUDE_RE.search(track.get("name") or ""))
+
+
+def interludes(tracks: Sequence[dict]) -> List[dict]:
+    """Every track whose title labels it an interlude or skit."""
+    return [t for t in tracks if is_interlude(t)]
+
+
+def _without_interludes(pool: Sequence[dict], needed: int) -> Tuple[List[dict], bool]:
+    """The pool minus interludes, unless that leaves too few.
+
+    Returns the pool and whether the filter had to be relaxed. Relaxing
+    beats returning fewer than the floor: a short record made mostly of
+    labelled fragments should still be represented.
+    """
+    kept = [t for t in pool if not is_interlude(t)]
+    if len(kept) >= needed:
+        return kept, False
+    return list(pool), True
 
 
 def _position_of(track: dict, tracks: Sequence[dict]) -> Optional[int]:
@@ -91,15 +132,45 @@ def positional_order(tracks: Sequence[dict]) -> List[tuple]:
     ]
 
 
+def title_track(album_name: str, tracks: Sequence[dict]) -> Optional[dict]:
+    """The track sharing the album's name, if there is one.
+
+    The artist's own signal about what the record is named for, which is
+    why this outranks a play count inferred from listening data -- those
+    skew hard toward whichever single circulated first (a verified 7.8x
+    against the album total).
+
+    Matched fuzzily through the shared matcher, so punctuation and
+    casing drift do not lose it, and so does an edition suffix on the
+    album that the track does not carry.
+    """
+    from verdict.resolve.matcher import TRACK_THRESHOLD, best_match
+
+    by_name = {t.get("name", ""): t for t in tracks if t.get("uri") and t.get("name")}
+    if not album_name or not by_name:
+        return None
+    hit = best_match(album_name, by_name.keys(), TRACK_THRESHOLD)
+    return by_name[hit[0]] if hit else None
+
+
 def select(
     named: Sequence[ResolvedTrack],
     tracks: Sequence[dict],
     plays=None,
+    album_name: str = "",
+    fetch_plays=None,
 ) -> List[ResolvedTrack]:
     """Apply the selection chain to one album.
 
     `named` are already-validated matches in prose order; `tracks` is the
-    real tracklist; `plays` is an `AlbumPlays` or None.
+    real tracklist.
+
+    Play counts arrive either as `plays` directly or as `fetch_plays`, a
+    zero-argument callable invoked only if the Last.fm rung is actually
+    reached. The callable form matters: an album whose title track
+    satisfies the minimum should cost no Last.fm requests at all, and a
+    single lookup is one call plus up to fifteen more for per-track
+    counts.
     """
     chosen: List[ResolvedTrack] = list(named[:MAX_TRACKS])
     taken = {track.uri for track in chosen}
@@ -109,15 +180,47 @@ def select(
 
     remaining = [t for t in tracks if t.get("uri") and t["uri"] not in taken]
 
-    # Step 2: Last.fm, only when the source named too few. Never called
-    # when a source named enough -- the source's own judgement wins.
+    # Step 2: the title track. Deliberately above Last.fm -- the artist
+    # naming the record after a track is a stronger statement than an
+    # aggregate play count, which reflects whatever was released first.
+    if album_name:
+        # Unlike the sub-90s case, an explicit "(Interlude)" label is the
+        # artist saying this is not a main track, which outranks the
+        # album sharing its name.
+        title_pool = [t for t in remaining if not is_interlude(t)]
+        candidate = title_track(album_name, title_pool)
+        if candidate is not None:
+            # Short-track skipping is overridden here on purpose. That
+            # rule exists to avoid interludes, and a title track is
+            # deliberate in a way an interlude is not.
+            chosen.append(
+                ResolvedTrack(
+                    uri=candidate["uri"],
+                    name=candidate.get("name", ""),
+                    selection=TITLE_TRACK,
+                    rule="short_title_track" if _is_short(candidate) else None,
+                    position=_position_of(candidate, tracks),
+                )
+            )
+            taken.add(candidate["uri"])
+            remaining = [t for t in remaining if t["uri"] not in taken]
+
+    if len(chosen) >= MIN_TRACKS:
+        return chosen
+
+    # Step 3: Last.fm, only when the source named too few and the title
+    # track did not close the gap. Never consulted when a source named
+    # enough -- the source's own judgement wins.
+    if plays is None and fetch_plays is not None:
+        plays = fetch_plays()
     if plays is not None and plays.by_track:
         from verdict.resolve.matcher import normalize
 
+        pool, relaxed = _without_interludes(remaining, MIN_TRACKS - len(chosen))
         ranked = sorted(
             (
                 (plays.by_track.get(normalize(t.get("name", "")), 0), t)
-                for t in remaining
+                for t in pool
             ),
             key=lambda row: row[0],
             reverse=True,
@@ -134,6 +237,7 @@ def select(
                     selection=LASTFM,
                     playcount=count,
                     album_playcount=plays.total,
+                    rule="interlude_filter_relaxed" if relaxed else None,
                     position=_position_of(track, tracks),
                 )
             )
@@ -142,12 +246,19 @@ def select(
     if len(chosen) >= MIN_TRACKS:
         return chosen
 
-    # Step 3: positional.
+    # Step 4: positional.
+    pool, relaxed = _without_interludes(
+        [t for t in tracks if t.get("uri") and t["uri"] not in taken],
+        MIN_TRACKS - len(chosen),
+    )
+    allowed = {t["uri"] for t in pool}
     for track, rule, index in positional_order(tracks):
         if len(chosen) >= MIN_TRACKS:
             break
-        if track["uri"] in taken:
+        if track["uri"] in taken or track["uri"] not in allowed:
             continue
+        if relaxed:
+            rule = f"{rule}_interlude_filter_relaxed"
         chosen.append(
             ResolvedTrack(
                 uri=track["uri"],

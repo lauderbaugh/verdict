@@ -202,9 +202,38 @@ per-track playcount**, and `rank` is tracklist order rather than popularity.
 Verified against the published API docs on 2026-08-30. Per-track counts come
 from `track.getInfo`, one call per track, capped.
 
-Below `MIN_ALBUM_PLAYCOUNT` the data is treated as absent. These albums are days
-old, so counts are thin and skewed toward whichever track had a pre-release
-single.
+Below `MIN_ALBUM_PLAYCOUNT` the data is treated as absent.
+
+**The gate and the ranking measure different things.** `album.getInfo` playcount
+and `track.getInfo` playcount are not comparable, so the gate is weaker than it
+looks. Ranking is unaffected — every track in a comparison comes from
+`track.getInfo`, so it is internally consistent, and that is what selection
+uses.
+
+Last.fm's docs never define `playcount` for either endpoint; the `# Attributes`
+sections cover only `duration`, `fulltrack` and `streamable`. So this is
+inference from data, not a documented contract. But Last.fm's own published
+samples exhibit the inversion, both for Cher's *Believe*:
+
+| | listeners | playcount |
+|---|---|---|
+| `album.getInfo` (the album) | 47,602 | 212,991 |
+| `track.getInfo` (the track) | 69,572 | 281,445 |
+
+More people listened to the track than to the album, which is only possible if
+track figures aggregate a recording across every release it appears on — singles,
+compilations, other editions — while the album figure counts album-scoped
+scrobbles. Verified against the live API docs on 2026-08-31.
+
+Observed in the first live run: 4 of 17 selections had a track playcount above
+the album total, up to 7.8x (Liim, track 48,464 against album 6,209 — a small
+record whose lead single evidently long predates it).
+
+**The gate is currently inert.** 17 of 18 fallback selections cleared 1000; the
+sparsest album total seen was 2,304, still 2.3x the threshold, and Interpol
+reached 196,534. The expectation that days-old albums would be too sparse to
+rank was wrong at these levels. Left unchanged pending more weeks of data —
+raising it on one week would be tuning to noise.
 
 Positional rules: prefer tracks 2 and 4 (1-indexed), then the rest ascending.
 Never default to track 1 — disproportionately an intro. Skip tracks under 90

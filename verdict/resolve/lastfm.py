@@ -28,6 +28,13 @@ API = "https://ws.audioscrobbler.com/2.0/"
 #:
 #: A starting point, expected to be tuned: every selection logs both the
 #: per-track count and the album total precisely so it can be.
+#:
+#: Read SPEC.md before tuning this. The gate reads album.getInfo while the
+#: ranking reads track.getInfo, and the two are not the same measure --
+#: track figures appear to aggregate a recording across every release it
+#: appears on, so a track playcount above its own album total is normal
+#: rather than a fault. The first live run found the gate inert: the
+#: sparsest album seen was 2.3x above it.
 MIN_ALBUM_PLAYCOUNT = 1000
 
 #: Cap on per-track lookups for one album, so a long deluxe edition

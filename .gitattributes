@@ -1,0 +1,10 @@
+# The NDJSON logs are append-only, and two runs appending from divergent
+# bases is a textbook add/add conflict at end-of-file -- verified, not
+# assumed. A plain rebase stops with conflict markers in exactly the
+# situation the rebase exists to handle.
+#
+# Union takes both sides' lines. That is correct here precisely because
+# these files are append-only and every line is a self-contained record
+# carrying its own run_date: no line depends on its neighbours, so
+# interleaving is harmless and nothing is lost.
+log/*.ndjson merge=union

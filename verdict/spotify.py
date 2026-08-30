@@ -62,6 +62,15 @@ class TransientError(SpotifyError):
     """A failure worth retrying: a reset connection, a timeout, DNS."""
 
 
+class AuthError(SpotifyError):
+    """Credentials are wrong. Retrying cannot help and neither can waiting.
+
+    Kept distinct because this fails identically for every request in the
+    run: without it, one bad secret produces a row per verdict, each one
+    a fresh pointless round trip to the token endpoint.
+    """
+
+
 def header(headers: dict, name: str) -> Optional[str]:
     """Case-insensitive header lookup.
 
@@ -138,6 +147,12 @@ class TokenProvider:
             # a token refresh must not end the whole run.
             raise TransientError(f"token refresh failed: {exc}") from exc
 
+        if status in (400, 401):
+            raise AuthError(
+                f"token refresh rejected: HTTP {status} {payload[:200]!r}. "
+                "Check SPOTIFY_REFRESH_TOKEN, SPOTIFY_CLIENT_ID and "
+                "SPOTIFY_CLIENT_SECRET; re-run bootstrap.py if needed."
+            )
         if status != 200:
             raise SpotifyError(f"token refresh failed: HTTP {status} {payload[:200]!r}")
 

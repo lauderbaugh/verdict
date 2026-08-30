@@ -19,7 +19,7 @@ from verdict.resolve.matcher import (
     best_match,
     similarity,
 )
-from verdict.spotify import Spotify, SpotifyError
+from verdict.spotify import AuthError, Spotify, SpotifyError
 
 
 @dataclass(frozen=True)
@@ -122,6 +122,12 @@ def resolve(client: Spotify, verdict: Verdict) -> Outcome:
     """Turn one verdict into validated track URIs."""
     try:
         albums = client.search_albums(verdict.artist, verdict.album)
+    except AuthError:
+        # Not this verdict's problem: bad credentials fail every request,
+        # so the caller stops the run rather than logging one row per
+        # album. Must be re-raised before the SpotifyError catch below,
+        # which would otherwise swallow it as a per-album failure.
+        raise
     except SpotifyError as exc:
         return Unresolved(verdict, "search_failed", str(exc))
 
@@ -141,6 +147,8 @@ def resolve(client: Spotify, verdict: Verdict) -> Outcome:
 
     try:
         tracks = client.album_tracks(album_id)
+    except AuthError:
+        raise
     except SpotifyError as exc:
         return Unresolved(verdict, "tracklist_failed", str(exc))
 

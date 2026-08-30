@@ -21,7 +21,7 @@ from verdict.playlist.window import WINDOW_DAYS, plan, read_items
 from verdict.resolve.matcher import normalize
 from verdict.resolve.resolver import Resolution, Unresolved, resolve
 from verdict.sources import pitchfork_bnm, pitchfork_roundup
-from verdict.spotify import Spotify, SpotifyError
+from verdict.spotify import AuthError, Spotify, SpotifyError
 from verdict.verso import StateShapeError
 
 SOURCES = (pitchfork_roundup, pitchfork_bnm)
@@ -181,7 +181,14 @@ def execute(
 
     resolutions: List[Resolution] = []
     for verdict in verdicts:
-        outcome = resolve(client, verdict)
+        try:
+            outcome = resolve(client, verdict)
+        except AuthError as exc:
+            # Fails identically for every remaining verdict, so stop here.
+            # Logging one row per album would bury the single real cause
+            # under a dozen copies of itself.
+            report.errors.append(str(exc))
+            return report
         if isinstance(outcome, Unresolved):
             report.unresolved += 1
             journal.unmatched(

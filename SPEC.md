@@ -184,9 +184,34 @@ reviews. Match the description text, and revisit this if a rubric ever appears.
 Keep only quoted candidates that fuzzy-match a real track name. Non-matches are
 discarded, which makes false positives structurally hard.
 
-If a verdict names no valid track, take the album's first track only. Do not take
-the whole album — at ~13 albums/week over a 4-week window, full albums would mean
-a 500-track playlist.
+### Selection chain
+
+Target 2-4 tracks per album. Never the whole album — at ~13 albums/week over a
+4-week window that would mean a 500-track playlist.
+
+1. **Named.** Tracks the source named that validate against the real tracklist.
+   Cap at 4, keeping the first 4 in prose order.
+2. **Last.fm.** Only if step 1 yields fewer than 2. Fill the remaining slots to
+   the minimum of 2, ranked by play count, skipping anything already selected.
+   Never called when a source named enough — the source has already judged.
+3. **Positional.** If Last.fm is unavailable or too sparse.
+
+`album.getInfo` gives an album-level `playcount`, which is the sparsity gate, but
+its track objects carry only `rank`, `name`, `duration` and `url` — **no
+per-track playcount**, and `rank` is tracklist order rather than popularity.
+Verified against the published API docs on 2026-08-30. Per-track counts come
+from `track.getInfo`, one call per track, capped.
+
+Below `MIN_ALBUM_PLAYCOUNT` the data is treated as absent. These albums are days
+old, so counts are thin and skewed toward whichever track had a pre-release
+single.
+
+Positional rules: prefer tracks 2 and 4 (1-indexed), then the rest ascending.
+Never default to track 1 — disproportionately an intro. Skip tracks under 90
+seconds when a longer alternative exists.
+
+A failed or slow Last.fm call must not fail the run: degrade to positional and
+log it, on the same principle as `state_shape_changed`.
 
 Expect resolution failures on reissues, deluxe editions, self-titled albums,
 non-ASCII artist names, and releases absent from Spotify. Use a similarity
@@ -206,7 +231,9 @@ again — `additions.ndjson` is a history, not a blocklist.
 ## Logs (NDJSON, append-only, one object per line)
 
 ```
-log/additions.ndjson   source, track, artist, album, uri, source_url, score, run_date, match_confidence
+log/additions.ndjson   source, track, artist, album, uri, source_url, score, run_date,
+                       match_confidence, selection, playcount, album_playcount,
+                       rule, position
 log/removals.ndjson    uri, aged_out_date
 log/unmatched.ndjson   source, artist, album, source_url, reason
 ```
@@ -257,3 +284,20 @@ Anything using audio features or popularity, which no longer exist.
 
 Feed `media:thumbnail` gives album art up to 3600px. Composite a collage and push
 via `PUT /playlists/{id}/images`.
+
+### Cross-source agreement
+
+Once a second publication is wired up, a track named by two independent sources
+is the strongest signal available. Spotify `popularity` no longer exists, so
+there is no platform-side measure of a track's standing to fall back on, and
+Last.fm counts are thin on records this new.
+
+Two critics independently reaching for the same track is editorial agreement
+rather than an aggregate, and it is the only such signal the pipeline can
+observe. That makes it a reason to build the AV Club adapter beyond coverage: a
+second source improves selection on albums the roundup already covers, not just
+the count of albums seen.
+
+Dedup already merges verdicts before resolution, so the hook is the merge step —
+it currently keeps the richer verdict and discards the other, where it could
+instead record that both named the same track.

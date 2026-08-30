@@ -66,8 +66,8 @@ def test_noise_is_discarded_but_real_tracks_survive():
         FakeClient(),
         verdict(named_tracks=("honesty", "San Francisco", "He’s got a new bag")),
     )
-    assert [t.name for t in result.tracks] == ["San Francisco"]
-    assert result.used_fallback is False
+    named = [t.name for t in result.tracks if t.selection == "named"]
+    assert named == ["San Francisco"]
 
 
 def test_two_candidates_naming_one_track_are_deduplicated():
@@ -80,21 +80,21 @@ def test_two_candidates_naming_one_track_are_deduplicated():
 
 # --- fallback -------------------------------------------------------------
 
-def test_no_named_tracks_falls_back_to_the_first_track_only():
+def test_no_named_tracks_falls_back_to_the_minimum():
     """Never the whole album.
 
     ~13 albums a week over a 4-week window would be a 500-track playlist.
     """
     result = resolve(FakeClient(), verdict(named_tracks=()))
     assert result.used_fallback is True
-    assert [t.name for t in result.tracks] == ["I Ate the Most"]
-    assert result.tracks[0].confidence is None
+    assert len(result.tracks) == 2
+    assert all(t.selection == "positional" for t in result.tracks)
 
 
 def test_candidates_that_all_fail_validation_also_fall_back():
     result = resolve(FakeClient(), verdict(named_tracks=("honesty", "real", "I")))
     assert result.used_fallback is True
-    assert len(result.tracks) == 1
+    assert len(result.tracks) == 2
 
 
 # --- album selection ------------------------------------------------------
@@ -222,7 +222,8 @@ def test_duplicate_track_names_keep_the_first():
         {"name": "Intro", "uri": "spotify:track:disc2"},
     ]
     result = resolve(FakeClient(tracks=tracks), verdict(named_tracks=("Intro",)))
-    assert [t.uri for t in result.tracks] == ["spotify:track:disc1"]
+    named = [t.uri for t in result.tracks if t.selection == "named"]
+    assert named == ["spotify:track:disc1"]
 
 
 def test_near_misses_list_several_runners_up():

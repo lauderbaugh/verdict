@@ -18,6 +18,8 @@ tests; `probe_write_path.py` is what confirms it for real.
 | `verdict/sources/` — roundup + Best New Music | built |
 | `verdict/spotify.py` — raw-HTTP client, read and write | built, writes unverified |
 | `verdict/resolve/` — album lookup and track validation | built |
+| `verdict/resolve/selection.py` — named → Last.fm → positional | built |
+| `verdict/resolve/lastfm.py` — play counts | built, unverified live |
 | `verdict/playlist/window.py` — rolling 4-week window | built |
 | `verdict/journal.py` — NDJSON history | built |
 | `verdict/run.py` — weekly orchestrator | built |
@@ -44,7 +46,11 @@ accepted and removes nothing — a silent no-op. Delete the probe once it passes
 
 Then add five repository secrets: `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`,
 `SPOTIFY_REFRESH_TOKEN`, `SPOTIFY_PLAYLIST_ID`, and `LOG_COMMIT_PAT` — a
-fine-grained PAT with contents write. The logs are committed with the PAT rather
+fine-grained PAT with contents write.
+
+`LASTFM_API_KEY` is optional (free, read-only, no OAuth). Without it, albums the
+critic did not name tracks for fall through to track position instead of play
+counts. The logs are committed with the PAT rather
 than `GITHUB_TOKEN`: scheduled workflows auto-disable after 60 days of repository
 inactivity, and whether bot commits reset that timer is undocumented.
 

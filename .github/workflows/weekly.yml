@@ -41,7 +41,11 @@ jobs:
       # workflows auto-disable after 60 days of repository inactivity, and
       # whether bot commits reset that timer is undocumented and has
       # changed before. A PAT push is unambiguously user activity.
+      # always(): a failed run is exactly when unmatched.ndjson matters, and
+      # without this the workflow stops at the failed step and the bug
+      # queue explaining the failure is discarded.
       - name: Commit logs
+        if: always()
         run: |
           git config user.name "verdict"
           git config user.email "lauderbaugh@gmail.com"

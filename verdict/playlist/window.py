@@ -7,6 +7,7 @@ log is history and a bounded dedup set, not the source of truth.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Iterable, List, Optional, Sequence, Set, Tuple
@@ -36,14 +37,24 @@ def parse_added_at(raw) -> Optional[datetime]:
     """Read Spotify's `added_at`, which is ISO 8601 ending in `Z`.
 
     Python's `fromisoformat` did not accept `Z` before 3.11, and this
-    project supports 3.9.
+    project supports 3.9. ISO 8601 permits a lowercase `z`, so the
+    replacement is case-insensitive -- an unparsed timestamp reads as
+    None, and `expired()` keeps such items forever.
+
+    The result is always timezone-aware. `fromisoformat` accepts an
+    offsetless string and returns a naive datetime, which then raises
+    TypeError against the aware cutoff in `expired()` -- an exception
+    that escapes `execute()` entirely and ends the job on a traceback.
+    Assuming UTC is right for a field Spotify documents as UTC.
     """
     if not isinstance(raw, str) or not raw:
         return None
+    normalised = re.sub(r"[zZ]$", "+00:00", raw.strip())
     try:
-        return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(normalised)
     except ValueError:
         return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
 def read_items(payload: Iterable[dict]) -> List[PlaylistItem]:
@@ -75,7 +86,10 @@ def expired(
     """
     now = now or datetime.now(timezone.utc)
     cutoff = now - timedelta(days=days)
-    return [i.uri for i in items if i.added_at is not None and i.added_at < cutoff]
+    stale = [i.uri for i in items if i.added_at is not None and i.added_at < cutoff]
+    # De-duplicated: removal is by URI and takes every occurrence with it,
+    # so a repeated URI would only waste one of the 100 slots per request.
+    return list(dict.fromkeys(stale))
 
 
 def plan(

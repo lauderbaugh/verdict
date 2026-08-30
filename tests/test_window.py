@@ -110,3 +110,33 @@ def test_expiry_and_addition_together():
     decision = plan(["new"], [item("stale", 40), item("keep", 2)], now=NOW)
     assert decision.add == ("new",)
     assert decision.remove == ("stale",)
+
+
+# --- timestamp hardening (adversarial QA) ---------------------------------
+
+
+def test_a_naive_timestamp_does_not_crash_the_comparison():
+    """fromisoformat accepts an offsetless string and returns naive.
+
+    Comparing that against the aware cutoff raised TypeError, which
+    escaped execute() entirely and ended the job on a traceback.
+    """
+    parsed = parse_added_at("2026-08-01T12:00:00")
+    assert parsed.tzinfo is not None
+    assert expired([PlaylistItem("x", parsed)], now=NOW) == ["x"]
+
+
+def test_lowercase_z_is_accepted():
+    """ISO 8601 permits it, and an unreadable timestamp never ages out."""
+    assert parse_added_at("2026-08-01T12:00:00z") == parse_added_at("2026-08-01T12:00:00Z")
+
+
+def test_non_utc_offsets_compare_correctly():
+    aware = parse_added_at("2026-07-01T12:00:00+09:00")
+    assert expired([PlaylistItem("x", aware)], now=NOW) == ["x"]
+
+
+def test_duplicate_uris_are_removed_once():
+    """Removal is by URI and takes every occurrence, so one slot suffices."""
+    items = [item("dup", 40), item("dup", 41), item("other", 40)]
+    assert expired(items, now=NOW) == ["dup", "other"]

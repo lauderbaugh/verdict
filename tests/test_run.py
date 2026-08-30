@@ -182,7 +182,8 @@ def test_an_unresolvable_album_lands_in_the_bug_queue(tmp_path):
     spotify = FakeSpotify(search=[])
     report = _run(tmp_path, spotify)
     assert report.unresolved == 1 and spotify.added == []
-    assert read_log(tmp_path, "unmatched")[0]["reason"].startswith("album_not_found")
+    reasons = [row["reason"] for row in read_log(tmp_path, "unmatched")]
+    assert any(r.startswith("album_not_found") for r in reasons)
 
 
 def test_a_failed_playlist_read_stops_before_writing(tmp_path):
@@ -214,3 +215,67 @@ def test_a_track_added_recently_is_not_added_again(tmp_path):
     report = execute(spotify, "pl1", journal, fetcher_for(pages),
                      sleep=lambda _: None, now=NOW, run_date=RUN_DATE)
     assert spotify.added == [] and report.skipped == 1
+
+
+# --- the drain guard (adversarial QA) -------------------------------------
+
+
+class StockedPlaylist(FakeSpotify):
+    """A playlist already holding four weeks of tracks."""
+
+    def playlist_items(self, playlist_id):
+        return [
+            {"added_at": (NOW - timedelta(days=d)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+             "item": {"uri": f"spotify:track:{d}"}}
+            for d in (29, 30, 35, 2, 3)
+        ]
+
+
+def test_dead_feeds_do_not_drain_a_healthy_playlist(tmp_path):
+    """The failure this module exists to prevent.
+
+    Age-out ran even when discovery produced nothing, so a broken run
+    removed a week of tracks and reported success. Repeated weekly it
+    empties the playlist with CI green throughout.
+    """
+    def dead(url):
+        raise OSError("no route to host")
+
+    spotify = StockedPlaylist()
+    report = execute(spotify, "pl1", Journal(tmp_path), dead,
+                     sleep=lambda _: None, now=NOW, run_date=RUN_DATE)
+    assert spotify.removed == []
+    assert spotify.added == []
+    assert report.errors  # and therefore a non-zero exit
+
+
+def test_an_empty_feed_is_logged_rather_than_silent(tmp_path):
+    """A 200 with no items left no trace anywhere."""
+    def empty(url):
+        return "<rss version='2.0'><channel></channel></rss>"
+
+    spotify = StockedPlaylist()
+    report = execute(spotify, "pl1", Journal(tmp_path), empty,
+                     sleep=lambda _: None, now=NOW, run_date=RUN_DATE)
+    reasons = {row["reason"] for row in read_log(tmp_path, "unmatched")}
+    assert "feed_empty" in reasons
+    assert spotify.removed == [] and report.errors
+
+
+def test_resolution_failing_outright_also_blocks_writes(tmp_path):
+    """13 verdicts and nothing resolved is a broken run, not a quiet week."""
+    spotify = StockedPlaylist(search=[])
+    report = _run(tmp_path, spotify)
+    assert report.verdicts == 1 and report.resolved == 0
+    assert spotify.removed == [] and spotify.added == []
+    assert report.errors
+
+
+def test_a_healthy_run_still_ages_out(tmp_path):
+    """The guard must not block ordinary maintenance."""
+    spotify = StockedPlaylist()
+    report = _run(tmp_path, spotify)
+    assert report.added == 1
+    assert set(spotify.removed) == {"spotify:track:29", "spotify:track:30",
+                                    "spotify:track:35"}
+    assert not report.errors

@@ -76,6 +76,15 @@ def gather(
         )
         return verdicts
 
+    if not items:
+        # A feed that answers 200 with nothing is broken, not quiet. Left
+        # unlogged this is the one failure with no trace anywhere.
+        journal.unmatched(
+            source=source.NAME, artist=None, album=None,
+            source_url=source.FEED_URL, reason="feed_empty", run_date=run_date,
+        )
+        return verdicts
+
     for item in items:
         # Discovery-time drops are logged, never silent: a filter that
         # runs before the fetch leaves no other trace.
@@ -185,6 +194,22 @@ def execute(
             continue
         resolutions.append(outcome)
     report.resolved = len(resolutions)
+
+    # Nothing resolved means discovery or resolution is broken -- both
+    # feeds down, a changed slug, a dead search endpoint. Age-out would
+    # still run and quietly drain a healthy playlist a week at a time,
+    # green the whole way, which is exactly the "playlist silently stops
+    # updating" outcome this module exists to prevent.
+    #
+    # Reporting it is not enough: by the time an exit code is returned the
+    # removal has already happened. The writes have to be skipped, so the
+    # worst case is stale tracks lingering an extra week.
+    if not resolutions:
+        report.errors.append(
+            f"resolved 0 of {report.verdicts} verdicts; skipping playlist "
+            "writes rather than draining it"
+        )
+        return report
 
     # Candidate URIs, with the verdict each came from for the log.
     origin: Dict[str, Tuple[Verdict, str, Optional[float]]] = {}

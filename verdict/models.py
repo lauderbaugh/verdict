@@ -30,3 +30,13 @@ class Verdict:
     label: str | None = None
     score: float | None = None
     named_tracks: tuple[str, ...] = field(default_factory=tuple)
+
+    #: The publication's own editorial ranking of this album within the
+    #: week, where it has one -- NPR's "starting_5" against
+    #: "lightning_round". Source-native and never compared across
+    #: publications, for the same reason `score` is not.
+    #:
+    #: Nothing reads it yet. It is recorded because it is only available
+    #: at parse time, and it is the signal consensus-weighted track
+    #: counts would need (see SPEC.md, Later).
+    editorial_tier: str | None = None

@@ -9,6 +9,7 @@ import pytest
 
 from verdict.feed import FeedItem
 from verdict.sources import pitchfork_roundup as roundup
+from verdict.sources.base import Candidate
 
 FEED_DATE = datetime(2026, 8, 28, tzinfo=timezone.utc)
 ITEM = FeedItem(
@@ -25,7 +26,7 @@ def synthetic_page(body: list) -> str:
 
 @pytest.fixture(scope="module")
 def parsed(roundup_html):
-    return roundup.parse(ITEM, roundup_html)
+    return roundup.parse(Candidate(ITEM), roundup_html)
 
 
 @pytest.mark.parametrize(
@@ -130,7 +131,7 @@ def test_non_prose_blocks_are_excluded():
          ["native-ad", "“Buy This”"],
          ["hr"]]
     )
-    result = roundup.parse(ITEM, page)
+    result = roundup.parse(Candidate(ITEM), page)
     assert len(result.verdicts) == 1
     assert result.verdicts[0].named_tracks == ("Real Track",)
 
@@ -142,7 +143,7 @@ def test_intro_prose_before_the_first_header_is_discarded():
          ["h2", "Band: ", ["em", "Record"], " [Label]"],
          ["p", "The single is “Real Track”."]]
     )
-    result = roundup.parse(ITEM, page)
+    result = roundup.parse(Candidate(ITEM), page)
     assert result.verdicts[0].named_tracks == ("Real Track",)
 
 
@@ -153,12 +154,12 @@ def test_straight_quotes_are_not_track_candidates():
          ["h2", "Band: ", ["em", "Record"]],
          ["p", 'They play "Not A Match" tonight.']]
     )
-    assert roundup.parse(ITEM, page).verdicts[0].named_tracks == ()
+    assert roundup.parse(Candidate(ITEM), page).verdicts[0].named_tracks == ()
 
 
 def test_label_is_optional():
     page = synthetic_page(["div", ["h2", "Band: ", ["em", "Record"]], ["p", "Words."]])
-    assert roundup.parse(ITEM, page).verdicts[0].label is None
+    assert roundup.parse(Candidate(ITEM), page).verdicts[0].label is None
 
 
 def test_malformed_header_is_logged_not_crashed():
@@ -170,7 +171,7 @@ def test_malformed_header_is_logged_not_crashed():
          ["h2", "Band: ", ["em", "Record"], " [Label]"],
          ["p", "More prose."]]
     )
-    result = roundup.parse(ITEM, page)
+    result = roundup.parse(Candidate(ITEM), page)
     assert len(result.verdicts) == 1
     assert result.verdicts[0].artist == "Band"
     assert len(result.problems) == 1
@@ -185,4 +186,4 @@ def test_leading_apostrophe_survives():
          ["h2", "Band: ", ["em", "Record"]],
          ["p", "The closer is “’Til the End,” a highlight."]]
     )
-    assert roundup.parse(ITEM, page).verdicts[0].named_tracks == ("’Til the End",)
+    assert roundup.parse(Candidate(ITEM), page).verdicts[0].named_tracks == ("’Til the End",)

@@ -10,7 +10,13 @@ import re
 
 from verdict.feed import FeedItem
 from verdict.models import Verdict
-from verdict.sources.base import ParseResult, Problem
+from verdict.sources.base import (
+    Candidate,
+    DiscoveryResult,
+    ParseResult,
+    Problem,
+    discover_from_feed,
+)
 from verdict.sources.prose import PROSE_TAGS, track_candidates
 from verdict.verso import (
     children_of,
@@ -36,6 +42,11 @@ _LABEL_RE = re.compile(r"\[([^\[\]]+)\]\s*$")
 def select(item: FeedItem) -> bool:
     """True for roundup articles, matched on slug rather than title."""
     return SLUG in item.link
+
+
+def discover(fetch) -> DiscoveryResult:
+    """Roundup articles from the news feed. Each needs its page fetched."""
+    return discover_from_feed(fetch, FEED_URL, select)
 
 
 def _segment(body: list) -> list[tuple[list, list]]:
@@ -80,9 +91,10 @@ def _parse_header(header: list) -> tuple[str, str | None, str | None]:
     return artist, album, label
 
 
-def parse(item: FeedItem, html: str) -> ParseResult:
+def parse(candidate: Candidate, page: str) -> ParseResult:
     """Turn one roundup article into a Verdict per album."""
-    state = extract_state(html)
+    item = candidate.item
+    state = extract_state(page)
     body = dig(state, "transformed", "article", "body")
 
     verdicts: list[Verdict] = []

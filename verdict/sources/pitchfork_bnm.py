@@ -14,7 +14,13 @@ from typing import List, Optional
 
 from verdict.feed import FeedItem
 from verdict.models import Verdict
-from verdict.sources.base import ParseResult, Problem
+from verdict.sources.base import (
+    Candidate,
+    DiscoveryResult,
+    ParseResult,
+    Problem,
+    discover_from_feed,
+)
 from verdict.sources.prose import prose_blocks, track_candidates
 from verdict.verso import (  # noqa: F401
     children_of,
@@ -82,6 +88,15 @@ def select(item: FeedItem) -> bool:
     `parse`.
     """
     return skip_reason(item) is None
+
+
+def discover(fetch) -> DiscoveryResult:
+    """Album reviews, minus Sunday Reviews, each needing its page fetched.
+
+    Sunday Review drops come back as problems rather than vanishing: the
+    filter runs before any fetch, so a mis-fire would leave no other trace.
+    """
+    return discover_from_feed(fetch, FEED_URL, select, skip_reason=skip_reason)
 
 
 def _reviewed_items(review: dict) -> list[dict]:
@@ -233,9 +248,11 @@ def _is_retrospective(entry: dict, item: FeedItem) -> bool:
     return item.published_at.year - release_year > RETROSPECTIVE_YEARS
 
 
-def parse(item: FeedItem, html: str) -> ParseResult:
+def parse(candidate: Candidate, page: str) -> ParseResult:
     """Turn one review page into a Verdict per Best New Music album."""
-    state = extract_state(html)
+    item = candidate.item
+    html = page
+    state = extract_state(page)
     review = dig(state, "transformed", "review")
     entries = _reviewed_items(review)
 

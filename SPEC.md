@@ -328,10 +328,29 @@ verdict, and `select()` should read it in place of the fixed `MIN_TRACKS`.
 Note this only works if dedup stays keyed on the album rather than the source —
 which it is, on normalized artist and album.
 
-**Corroboration need not be a full source.** Investigation on 2026-08-31 found
-that Stereogum publishes a weekly "Other albums of note out this week" list of
-~126 releases which overlaps a Pitchfork roundup at 12 of 13. One cheap fetch a
-week can therefore corroborate almost every Pitchfork pick while adding no
-tracks of its own. A corroboration feed and a track-contributing source are
+**Agreement must be editorial, not mere presence.** This is the constraint that
+makes the rest of it meaningful.
+
+Investigation on 2026-08-31 found that Stereogum publishes a weekly "Other
+albums of note out this week" list of ~126 releases, overlapping a Pitchfork
+roundup at 12 of 13. That looks like near-total agreement and is not:
+a comprehensive release list mostly proves **the record came out that week**.
+Two publications both noticing a Friday release is a calendar fact, not a shared
+judgement.
+
+So if consensus weighting ever grants an album 4 tracks instead of 2, the extra
+room must be earned by agreement from something **editorial** — Stereogum's
+Album Of The Week, NPR's Starting 5, Pitchfork's Best New Music — and never by
+appearance on a long list. Presence may corroborate that a record exists; only
+an editorial pick is evidence anyone thought it mattered.
+
+This is why `editorial_tier` is recorded on `Verdict` even though nothing reads
+it yet: it is only available at parse time, and it is the field that would
+distinguish the two.
+
+**Stereogum is not a source** (decided 2026-08-31). Its weekly list is too broad
+to contribute tracks, and its Album Of The Week is a single album a week. If it
+is ever wired in, it should be as an editorial corroboration signal, not as a
+track contributor. A corroboration feed and a track-contributing source are
 different roles, and the design should not assume every source has to be both.
 See `docs/second-source-candidates.md`.

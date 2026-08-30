@@ -8,6 +8,7 @@ import pytest
 
 from verdict.feed import FeedItem
 from verdict.sources import pitchfork_bnm as bnm
+from verdict.sources.base import Candidate
 from verdict.verso import StateShapeError
 
 ITEM = FeedItem(link="https://pitchfork.com/reviews/albums/aldous-harding-train-on-the-island/")
@@ -19,7 +20,7 @@ def synthetic_page(review: dict) -> str:
 
 
 def test_best_new_music_is_emitted(bnm_html):
-    result = bnm.parse(ITEM, bnm_html)
+    result = bnm.parse(Candidate(ITEM), bnm_html)
     assert len(result.verdicts) == 1
     verdict = result.verdicts[0]
     assert verdict.source == "pitchfork_bnm"
@@ -31,7 +32,7 @@ def test_best_new_music_is_emitted(bnm_html):
 
 def test_non_bnm_is_filtered_out(not_bnm_html):
     """Routine, not a defect: no Problem is recorded for an ordinary review."""
-    result = bnm.parse(ITEM, not_bnm_html)
+    result = bnm.parse(Candidate(ITEM), not_bnm_html)
     assert result.verdicts == ()
     assert result.problems == ()
 
@@ -47,20 +48,20 @@ def test_score_is_not_thresholded(not_bnm_html, bnm_html):
     rejected = dig(extract_state(not_bnm_html), "transformed", "review",
                    "multiReviewHeaderProps", "itemsReviewed", 0, "musicRating")
     assert rejected["score"] == 8 and rejected["isBestNewMusic"] is False
-    assert bnm.parse(ITEM, not_bnm_html).verdicts == ()
-    assert bnm.parse(ITEM, bnm_html).verdicts[0].score == 9.0
+    assert bnm.parse(Candidate(ITEM), not_bnm_html).verdicts == ()
+    assert bnm.parse(Candidate(ITEM), bnm_html).verdicts[0].score == 9.0
 
 
 def test_score_is_coerced_to_float(bnm_html):
     """Stored type is inconsistent across pages (`9`, `8.6`, `8`)."""
     stored = json.loads(json.dumps(9))
     assert isinstance(stored, int)
-    assert isinstance(bnm.parse(ITEM, bnm_html).verdicts[0].score, float)
+    assert isinstance(bnm.parse(Candidate(ITEM), bnm_html).verdicts[0].score, float)
 
 
 def test_track_candidates_are_lifted_from_the_review_body(bnm_html):
     """Without this, every BNM verdict would be a first-track fallback."""
-    tracks = bnm.parse(ITEM, bnm_html).verdicts[0].named_tracks
+    tracks = bnm.parse(Candidate(ITEM), bnm_html).verdicts[0].named_tracks
     assert {"I Ate the Most", "San Francisco", "Riding That Symbol"} <= set(tracks)
 
 
@@ -70,7 +71,7 @@ def test_review_candidates_are_noisier_than_roundup_candidates(bnm_html):
     About half of these are not tracks. That is the accepted trade: the
     cost is recall at resolution, not a wrong track on the playlist.
     """
-    tracks = bnm.parse(ITEM, bnm_html).verdicts[0].named_tracks
+    tracks = bnm.parse(Candidate(ITEM), bnm_html).verdicts[0].named_tracks
     assert len(tracks) > 10
     assert "honesty" in tracks  # scare-quoted prose, discarded downstream
 
@@ -87,7 +88,7 @@ def test_multi_album_review_gets_no_candidates():
             ],
         },
     })
-    result = bnm.parse(ITEM, page)
+    result = bnm.parse(Candidate(ITEM), page)
     assert len(result.verdicts) == 2
     assert all(v.named_tracks == () for v in result.verdicts)
 
@@ -101,7 +102,7 @@ def test_missing_body_is_a_thin_result_not_an_error():
             ],
         },
     })
-    result = bnm.parse(ITEM, page)
+    result = bnm.parse(Candidate(ITEM), page)
     assert result.verdicts[0].named_tracks == ()
     assert result.problems == ()
 
@@ -121,7 +122,7 @@ def test_ad_blocks_in_review_bodies_are_excluded():
             ],
         },
     })
-    assert bnm.parse(ITEM, page).verdicts[0].named_tracks == ("Real Track",)
+    assert bnm.parse(Candidate(ITEM), page).verdicts[0].named_tracks == ("Real Track",)
 
 
 @pytest.mark.parametrize(
@@ -185,7 +186,7 @@ def test_multi_album_review_uses_per_item_fields():
             ],
         }
     })
-    result = bnm.parse(ITEM, page)
+    result = bnm.parse(Candidate(ITEM), page)
     assert len(result.verdicts) == 1
     assert result.verdicts[0].artist == "Some Band"
     assert result.verdicts[0].album == "First: Record"
@@ -200,7 +201,7 @@ def test_falls_back_to_header_props_when_items_absent():
             "dangerousHed": "Only Record",
         }
     })
-    result = bnm.parse(ITEM, page)
+    result = bnm.parse(Candidate(ITEM), page)
     assert len(result.verdicts) == 1
     assert result.verdicts[0].artist == "Fallback Band"
     assert result.verdicts[0].album == "Only Record"
@@ -210,7 +211,7 @@ def test_falls_back_to_header_props_when_items_absent():
 def test_missing_review_node_raises_state_shape_error():
     """The caller logs `state_shape_changed` and keeps the run alive."""
     with pytest.raises(StateShapeError):
-        bnm.parse(ITEM, synthetic_page({}))
+        bnm.parse(Candidate(ITEM), synthetic_page({}))
 
 
 def test_recirculation_modules_are_never_consulted(bnm_html):
@@ -220,7 +221,7 @@ def test_recirculation_modules_are_never_consulted(bnm_html):
     so the adapter walks to the node instead of grepping the blob.
     """
     assert bnm_html.count("isBestNewMusic") > 1
-    assert bnm.parse(ITEM, bnm_html).verdicts[0].score == 9.0
+    assert bnm.parse(Candidate(ITEM), bnm_html).verdicts[0].score == 9.0
 
 
 # --- Sunday Reviews -------------------------------------------------------
@@ -279,7 +280,7 @@ def test_sunday_review_would_be_dropped_by_the_bnm_filter_too(sunday_html):
     This is a second line of defence, not the primary one -- a Sunday
     Review carrying the flag would still need the discovery filter.
     """
-    assert bnm.parse(ITEM, sunday_html).verdicts == ()
+    assert bnm.parse(Candidate(ITEM), sunday_html).verdicts == ()
 
 
 # --- fixes from adversarial QA --------------------------------------------
@@ -310,7 +311,7 @@ def test_fallback_album_is_cleaned_of_markup():
             "dangerousHed": "<em>Train on the Island</em>",
         }
     })
-    verdict = bnm.parse(ITEM, page).verdicts[0]
+    verdict = bnm.parse(Candidate(ITEM), page).verdicts[0]
     assert verdict.album == "Train on the Island"
 
 
@@ -325,7 +326,7 @@ def test_entities_are_unescaped():
             }],
         }
     })
-    assert bnm.parse(ITEM, page).verdicts[0].album == "J Mascis Live at CBGB's"
+    assert bnm.parse(Candidate(ITEM), page).verdicts[0].album == "J Mascis Live at CBGB's"
 
 
 def test_multi_album_review_pairs_artists_by_position():
@@ -341,7 +342,7 @@ def test_multi_album_review_pairs_artists_by_position():
             ],
         }
     })
-    pairs = [(v.artist, v.album) for v in bnm.parse(ITEM, page).verdicts]
+    pairs = [(v.artist, v.album) for v in bnm.parse(Candidate(ITEM), page).verdicts]
     assert pairs == [("Artist One", "Record One"), ("Artist Two", "Record Two")]
 
 
@@ -357,7 +358,7 @@ def test_one_artist_covers_every_album_on_the_page():
             ],
         }
     })
-    assert {v.artist for v in bnm.parse(ITEM, page).verdicts} == {"Only Artist"}
+    assert {v.artist for v in bnm.parse(Candidate(ITEM), page).verdicts} == {"Only Artist"}
 
 
 def test_ambiguous_artist_counts_become_a_problem_not_a_guess():
@@ -372,7 +373,7 @@ def test_ambiguous_artist_counts_become_a_problem_not_a_guess():
             ],
         }
     })
-    result = bnm.parse(ITEM, page)
+    result = bnm.parse(Candidate(ITEM), page)
     assert result.verdicts == ()
     assert {p.reason for p in result.problems} == {"artist_album_unparsed"}
 
@@ -397,7 +398,7 @@ def test_retrospective_that_slips_discovery_is_caught_at_parse():
     })
     item = FeedItem(link="x", description="Reworded boilerplate.",
                     published_at=datetime(2026, 8, 23, tzinfo=timezone.utc))
-    result = bnm.parse(item, page)
+    result = bnm.parse(Candidate(item), page)
     assert result.verdicts == ()
     assert result.problems[0].reason == "suspected_retrospective"
 
@@ -415,7 +416,7 @@ def test_a_current_release_is_not_flagged_retrospective():
         }
     })
     item = FeedItem(link="x", published_at=datetime(2026, 8, 23, tzinfo=timezone.utc))
-    assert len(bnm.parse(item, page).verdicts) == 1
+    assert len(bnm.parse(Candidate(item), page).verdicts) == 1
 
 
 def test_unreadable_items_reviewed_is_a_shape_change_not_a_quiet_week():
@@ -428,4 +429,4 @@ def test_unreadable_items_reviewed_is_a_shape_change_not_a_quiet_week():
         "headerProps": {"musicRating": {"isBestNewMusic": True, "score": 9}},
     })
     with pytest.raises(StateShapeError):
-        bnm.parse(ITEM, page)
+        bnm.parse(Candidate(ITEM), page)

@@ -28,3 +28,13 @@ only drops real titles.
 `verdict/journal.py`. Tests are offline and fixture-driven — the files in
 `tests/fixtures/` are real captured pages, and nothing in the suite
 touches the network.
+
+A filter that drops an item before it is fetched must expose *why*, so
+the caller can log it. Discovery-time drops leave no row in
+`unmatched.ndjson` otherwise, and an invisible false positive is the one
+failure mode this project rules out everywhere else.
+
+Prefer real captured fixtures over synthetic state blobs when testing a
+parser. Synthetic data is where the bugs hide: it agreed with the code
+about `dangerousHed` being plain text and about header casing, and both
+were wrong in the real responses.

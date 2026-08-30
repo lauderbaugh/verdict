@@ -2,7 +2,7 @@
 name = "verdict"
 version = "0.1.0"
 description = "Reads album recommendations from music critics and maintains a rolling Spotify playlist."
-requires-python = ">=3.10"
+requires-python = ">=3.9"
 
 # No runtime dependencies yet. The adapters use only the standard library.
 # Resolution will need an HTTP client; SPEC rules out any Spotify client

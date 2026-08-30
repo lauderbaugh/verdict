@@ -7,8 +7,8 @@ page structures verified against live responses, and it wins over recollection.
 
 ## Status
 
-Source adapters only. Resolution, the rolling playlist window, and deployment
-are not built yet.
+Sources and resolution. The rolling playlist window and deployment are not built
+yet, and nothing has run against a real Spotify account.
 
 | Component | State |
 |---|---|
@@ -17,7 +17,8 @@ are not built yet.
 | `verdict/sources/pitchfork_roundup.py` | built |
 | `verdict/sources/pitchfork_bnm.py` | built |
 | `verdict/journal.py` — NDJSON history | `unmatched` only |
-| `resolve/` — Spotify lookup and track validation | not started |
+| `verdict/spotify.py` — raw-HTTP client, read paths | built |
+| `verdict/resolve/` — album lookup and track validation | built |
 | `playlist/` — rolling 4-week window | not started |
 | `bootstrap.py`, GitHub Actions workflow | not started |
 

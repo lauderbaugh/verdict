@@ -30,6 +30,24 @@ from track, album, and artist objects.
 Do not use a client library unless you confirm it was updated after February 2026.
 Raw HTTP is safer.
 
+### Verified request bodies (docs, 2026-08-30)
+
+The rename went further than the paths. `DELETE` renamed its body key too, so
+inferring the new body from the old `/tracks` shape produces a request that is
+accepted but removes nothing.
+
+```
+POST   /playlists/{id}/items   {"uris": ["spotify:track:..."]}          max 100
+DELETE /playlists/{id}/items   {"items": [{"uri": "..."}],             max 100
+                                "snapshot_id": "..."}                  snapshot optional
+```
+
+`GET /playlists/{id}/items` returns `items[]` with `added_at` and `item` (not
+`track`) — the `added_at` the rolling window needs is on the outer object.
+
+`GET /search` `limit` default 5, range 0-10. `GET /albums/{id}/tracks` `limit`
+default 20, max 50, so long deluxe editions need pagination.
+
 ## Architecture
 
 ```

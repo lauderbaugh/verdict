@@ -210,6 +210,28 @@ Target 2-4 tracks per album. Never the whole album — at ~13 albums/week over a
    the lookup is deferred, since one album costs a call plus up to fifteen more.
 4. **Positional.** If Last.fm is unavailable or too sparse.
 
+**Interludes are skipped in the fallback rungs.** Titles that announce the track
+is not a main one — `Intro`, `Skit 2`, `Money Trees (Interlude)`, `Alright -
+Skit` — are kept out of the title-track, Last.fm and positional steps.
+
+Matched as a standalone *label*, not as a word anywhere in the title. Word
+boundaries alone are insufficient: `\binterlude\b` matches "Interlude City",
+which is a song title rather than an interlude. A label is the whole title,
+bracketed, or dash-suffixed.
+
+Two rules:
+
+- **Never applied to named tracks.** If a critic writes about an interlude that
+  is a deliberate pick, and it survives.
+- **A labelled title track is refused**, unlike the sub-90-second case. A short
+  title track may still be the record's centrepiece; an explicit "(Interlude)"
+  is the artist saying it is not.
+
+If filtering would leave fewer than the floor of 2, the filter relaxes rather
+than returning fewer, and the surviving tracks record
+`interlude_filter_relaxed`. Skips are written to `log/skips.ndjson` so the
+false-positive rate can be read without wading through the bug queue.
+
 `album.getInfo` gives an album-level `playcount`, which is the sparsity gate, but
 its track objects carry only `rank`, `name`, `duration` and `url` — **no
 per-track playcount**, and `rank` is tracklist order rather than popularity.

@@ -26,7 +26,7 @@ class Journal:
 
     #: The only files this class may write. Guards the path built below,
     #: since a stream name flows straight into a filename.
-    STREAMS = frozenset({"additions", "removals", "unmatched"})
+    STREAMS = frozenset({"additions", "removals", "skips", "unmatched"})
 
     def append(self, stream: str, record: dict[str, Any]) -> None:
         """Append one record to `log/{stream}.ndjson`."""
@@ -127,6 +127,34 @@ class Journal:
             {
                 "uri": uri,
                 "aged_out_date": (aged_out_date or date.today()).isoformat(),
+            },
+        )
+
+    def skip(
+        self,
+        *,
+        source: str,
+        artist: str,
+        album: str,
+        track: str,
+        reason: str,
+        run_date: Optional[date] = None,
+    ) -> None:
+        """Record a track the selection chain declined to consider.
+
+        Not the bug queue: a skipped interlude is the filter working.
+        Kept separate so the false-positive rate can be read without
+        wading through real failures.
+        """
+        self.append(
+            "skips",
+            {
+                "source": source,
+                "artist": artist,
+                "album": album,
+                "track": track,
+                "reason": reason,
+                "run_date": (run_date or date.today()).isoformat(),
             },
         )
 

@@ -52,6 +52,7 @@ class RunReport:
     problems: int = 0
     corroborated_by_list: int = 0
     corroborated_editorially: int = 0
+    skipped_interludes: int = 0
     errors: List[str] = field(default_factory=list)
 
 
@@ -196,6 +197,12 @@ def execute(
             )
             continue
         resolutions.append(outcome)
+        for title in outcome.skipped_interludes:
+            journal.skip(
+                source=verdict.source, artist=verdict.artist, album=verdict.album,
+                track=title, reason="interlude", run_date=run_date,
+            )
+            report.skipped_interludes += 1
     report.resolved = len(resolutions)
 
     # Nothing resolved means discovery or resolution is broken -- both

@@ -13,8 +13,9 @@ from `additions.ndjson` rather than guessed at.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence, Tuple
 
 #: Two is enough to represent an album; four is where a 4-week window
 #: stops being a playlist and starts being a discography.
@@ -27,6 +28,21 @@ SHORT_TRACK_MS = 90_000
 #: Track 1 is disproportionately an intro, so it is never preferred --
 #: only reached when nothing longer is left.
 PREFERRED_POSITIONS = (2, 4)
+
+#: Titles that announce the track is not a main one.
+_INTERLUDE_MARKERS = r"intro|outro|interlude|skit|prelude|reprise"
+
+#: Matched as a standalone *label*, not as a word anywhere in the title.
+#: Word boundaries alone are not enough -- `\binterlude\b` matches
+#: "Interlude City", which is a real song title rather than an interlude.
+#: A label is the whole title, or bracketed, or dash-suffixed.
+_INTERLUDE_RE = re.compile(
+    rf"""(?xi)
+      ^\s*(?:{_INTERLUDE_MARKERS})\b[\s.\-–—:]*\d*\s*$
+    | [\(\[]\s*(?:{_INTERLUDE_MARKERS})\b[^)\]]*[\)\]]
+    | [\-–—]\s*(?:{_INTERLUDE_MARKERS})\b[\s.\d]*$
+    """
+)
 
 NAMED = "named"
 TITLE_TRACK = "title_track"
@@ -50,6 +66,29 @@ class ResolvedTrack:
     rule: Optional[str] = None
     #: 1-indexed position on the album, for any selection method
     position: Optional[int] = None
+
+
+def is_interlude(track: dict) -> bool:
+    """True if the title announces the track is not a main one."""
+    return bool(_INTERLUDE_RE.search(track.get("name") or ""))
+
+
+def interludes(tracks: Sequence[dict]) -> List[dict]:
+    """Every track whose title labels it an interlude or skit."""
+    return [t for t in tracks if is_interlude(t)]
+
+
+def _without_interludes(pool: Sequence[dict], needed: int) -> Tuple[List[dict], bool]:
+    """The pool minus interludes, unless that leaves too few.
+
+    Returns the pool and whether the filter had to be relaxed. Relaxing
+    beats returning fewer than the floor: a short record made mostly of
+    labelled fragments should still be represented.
+    """
+    kept = [t for t in pool if not is_interlude(t)]
+    if len(kept) >= needed:
+        return kept, False
+    return list(pool), True
 
 
 def _position_of(track: dict, tracks: Sequence[dict]) -> Optional[int]:
@@ -145,7 +184,11 @@ def select(
     # naming the record after a track is a stronger statement than an
     # aggregate play count, which reflects whatever was released first.
     if album_name:
-        candidate = title_track(album_name, remaining)
+        # Unlike the sub-90s case, an explicit "(Interlude)" label is the
+        # artist saying this is not a main track, which outranks the
+        # album sharing its name.
+        title_pool = [t for t in remaining if not is_interlude(t)]
+        candidate = title_track(album_name, title_pool)
         if candidate is not None:
             # Short-track skipping is overridden here on purpose. That
             # rule exists to avoid interludes, and a title track is
@@ -173,10 +216,11 @@ def select(
     if plays is not None and plays.by_track:
         from verdict.resolve.matcher import normalize
 
+        pool, relaxed = _without_interludes(remaining, MIN_TRACKS - len(chosen))
         ranked = sorted(
             (
                 (plays.by_track.get(normalize(t.get("name", "")), 0), t)
-                for t in remaining
+                for t in pool
             ),
             key=lambda row: row[0],
             reverse=True,
@@ -193,6 +237,7 @@ def select(
                     selection=LASTFM,
                     playcount=count,
                     album_playcount=plays.total,
+                    rule="interlude_filter_relaxed" if relaxed else None,
                     position=_position_of(track, tracks),
                 )
             )
@@ -202,11 +247,18 @@ def select(
         return chosen
 
     # Step 4: positional.
+    pool, relaxed = _without_interludes(
+        [t for t in tracks if t.get("uri") and t["uri"] not in taken],
+        MIN_TRACKS - len(chosen),
+    )
+    allowed = {t["uri"] for t in pool}
     for track, rule, index in positional_order(tracks):
         if len(chosen) >= MIN_TRACKS:
             break
-        if track["uri"] in taken:
+        if track["uri"] in taken or track["uri"] not in allowed:
             continue
+        if relaxed:
+            rule = f"{rule}_interlude_filter_relaxed"
         chosen.append(
             ResolvedTrack(
                 uri=track["uri"],

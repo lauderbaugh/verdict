@@ -57,6 +57,10 @@ Two to four tracks per album, chosen in this order:
    played. Prefers tracks 2 and 4, never defaults to track 1, and skips anything
    under 90 seconds when a longer track is available.
 
+All three fallback rungs skip tracks whose titles label them interludes or
+skits. Tracks a critic named explicitly are never filtered — writing about an
+interlude is a deliberate pick.
+
 Quoted candidates are deliberately noisy — roughly half are lyrics or scare
 quotes. They are only ever *filtered* against the real tracklist, never trusted,
 so a false positive has to coincide with an actual track on the actual album.
@@ -79,6 +83,7 @@ Append-only NDJSON, committed by the weekly job.
 |---|---|
 | `log/additions.ndjson` | every track added, with how it was chosen — `named` / `lastfm` / `positional`, its match confidence or play count, and the rule that placed it |
 | `log/removals.ndjson` | URIs aged out of the window |
+| `log/skips.ndjson` | tracks the interlude filter kept out of the fallback rungs — not failures, the filter working |
 | `log/unmatched.ndjson` | the bug queue: albums that did not resolve, pages whose structure moved, feeds that came back empty |
 
 `unmatched.ndjson` is where the project tells you it is broken. Nothing fails

@@ -8,7 +8,7 @@ actual resolved album to survive.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Optional, Sequence, Tuple, Union
 
 from verdict.models import Verdict
@@ -24,6 +24,7 @@ from verdict.resolve.selection import (
     MIN_TRACKS,
     NAMED,
     ResolvedTrack,
+    interludes,
     select,
 )
 from verdict.spotify import AuthError, Spotify, SpotifyError
@@ -38,6 +39,10 @@ class Resolution:
     album_name: str
     tracks: Tuple[ResolvedTrack, ...]
     used_fallback: bool = False
+    #: Titles the interlude filter kept out of the fallback rungs.
+    #: Recorded so the false-positive rate is visible; a track a source
+    #: named explicitly never appears here.
+    skipped_interludes: Tuple[str, ...] = field(default_factory=tuple)
 
 
 @dataclass(frozen=True)
@@ -178,12 +183,16 @@ def resolve(client: Spotify, verdict: Verdict, lastfm=None) -> Outcome:
     if not chosen:
         return Unresolved(verdict, "no_selectable_tracks")
 
+    picked = {t.uri for t in chosen}
     return Resolution(
         verdict=verdict,
         album_id=album_id,
         album_name=album.get("name", ""),
         tracks=tuple(chosen),
         used_fallback=any(t.selection != NAMED for t in chosen),
+        skipped_interludes=tuple(
+            t.get("name", "") for t in interludes(tracks) if t.get("uri") not in picked
+        ),
     )
 
 

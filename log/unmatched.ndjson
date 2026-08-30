@@ -20,3 +20,4 @@
 {"album": null, "artist": null, "reason": "sunday_review", "run_date": "2026-08-30", "source": "pitchfork_bnm", "source_url": "https://pitchfork.com/reviews/albums/paradis-recto-verso/"}
 {"album": null, "artist": null, "reason": "sunday_review", "run_date": "2026-08-30", "source": "pitchfork_bnm", "source_url": "https://pitchfork.com/reviews/albums/the-eagles-their-greatest-hits-1971-1975/"}
 {"album": null, "artist": null, "reason": "sunday_review", "run_date": "2026-08-30", "source": "pitchfork_bnm", "source_url": "https://pitchfork.com/reviews/albums/paradis-recto-verso/"}
+{"album": "Thank You", "artist": "Mike D 5D", "reason": "album_below_threshold: closest: Tranquility (0.30); Made The Way (0.27); Cedar Sleep (0.20)", "run_date": "2026-08-30", "source": "npr_new_music_friday", "source_url": "https://www.npr.org/2026/08/28/nx-s1-5946388/new-music-friday-the-best-albums-out-aug-28"}

@@ -15,6 +15,7 @@ from verdict.models import Verdict
 from verdict.resolve.matcher import (
     ALBUM_THRESHOLD,
     TRACK_THRESHOLD,
+    artist_similarity,
     best_match,
     similarity,
 )
@@ -66,8 +67,10 @@ def _album_score(verdict: Verdict, album: dict) -> float:
     reissues make that a real failure mode.
     """
     names = [a.get("name", "") for a in album.get("artists", []) if isinstance(a, dict)]
-    artist_score = max((similarity(verdict.artist, n) for n in names), default=0.0)
-    return min(artist_score, similarity(verdict.album, album.get("name", "")))
+    return min(
+        artist_similarity(verdict.artist, names),
+        similarity(verdict.album, album.get("name", "")),
+    )
 
 
 def pick_album(verdict: Verdict, albums: Sequence[dict]) -> Tuple[Optional[dict], float]:
@@ -93,7 +96,13 @@ def _match_tracks(
     De-duplicated by URI: two candidates often name the same song, and a
     playlist must not carry it twice.
     """
-    by_name = {t.get("name", ""): t for t in tracks if t.get("uri")}
+    # Keyed on first occurrence: an album can carry two tracks with the
+    # same name (a multi-disc "Intro", a reprise), and building the map
+    # in order let the later one silently win.
+    by_name: dict = {}
+    for track in tracks:
+        if track.get("uri"):
+            by_name.setdefault(track.get("name", ""), track)
     matched: dict[str, ResolvedTrack] = {}
 
     for candidate in candidates:
@@ -123,7 +132,7 @@ def resolve(client: Spotify, verdict: Verdict) -> Outcome:
         return Unresolved(
             verdict,
             "album_below_threshold",
-            f"best was {album.get('name')!r} at {score:.2f}",
+            "closest: " + "; ".join(near_misses(verdict, albums)),
         )
 
     album_id = album.get("id")

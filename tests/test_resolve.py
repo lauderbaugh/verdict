@@ -167,3 +167,71 @@ def test_non_ascii_artist_resolves():
     )
     assert isinstance(result, Resolution)
     assert result.tracks[0].name == "Rósas"
+
+
+# --- fixes from adversarial QA --------------------------------------------
+
+
+def test_shared_credits_resolve():
+    """'Erykah Badu / the Alchemist' is in the captured roundup.
+
+    Spotify lists such records with one artist per entry, so the joined
+    credit matched neither and scored 0.68 -- below the 0.80 threshold.
+    A whole class of collaborations, not a one-off.
+    """
+    hits = [{
+        "id": "collab", "name": "Before the World Blows",
+        "artists": [{"name": "Erykah Badu"}, {"name": "The Alchemist"}],
+    }]
+    result = resolve(
+        FakeClient(albums=hits, tracks=[track("Ghost Ship")]),
+        verdict(artist="Erykah Badu / the Alchemist", album="Before the World Blows"),
+    )
+    assert isinstance(result, Resolution)
+    assert result.album_id == "collab"
+
+
+@pytest.mark.parametrize(
+    "credit", ["A & B", "A and B", "A, B", "A x B", "A with B"],
+)
+def test_other_shared_credit_separators(credit):
+    hits = [{"id": "c", "name": "Record", "artists": [{"name": "A"}, {"name": "B"}]}]
+    result = resolve(
+        FakeClient(albums=hits, tracks=[track("T")]),
+        verdict(artist=credit, album="Record"),
+    )
+    assert isinstance(result, Resolution)
+
+
+def test_splitting_credits_does_not_match_unrelated_artists():
+    """The split must not loosen matching into false positives."""
+    hits = [{"id": "x", "name": "Before the World Blows",
+             "artists": [{"name": "Some Other Band"}]}]
+    result = resolve(
+        FakeClient(albums=hits),
+        verdict(artist="Erykah Badu / the Alchemist", album="Before the World Blows"),
+    )
+    assert isinstance(result, Unresolved)
+
+
+def test_duplicate_track_names_keep_the_first():
+    """A multi-disc 'Intro' or a reprise: the later one silently won."""
+    tracks = [
+        {"name": "Intro", "uri": "spotify:track:disc1"},
+        {"name": "Outro", "uri": "spotify:track:outro"},
+        {"name": "Intro", "uri": "spotify:track:disc2"},
+    ]
+    result = resolve(FakeClient(tracks=tracks), verdict(named_tracks=("Intro",)))
+    assert [t.uri for t in result.tracks] == ["spotify:track:disc1"]
+
+
+def test_near_misses_list_several_runners_up():
+    """The bug queue is more useful with the alternatives than without."""
+    hits = [
+        {"id": "1", "name": "Wrong One", "artists": [{"name": "Nobody"}]},
+        {"id": "2", "name": "Wrong Two", "artists": [{"name": "Nobody"}]},
+    ]
+    result = resolve(FakeClient(albums=hits), verdict())
+    assert isinstance(result, Unresolved)
+    assert "Wrong One" in result.detail and "Wrong Two" in result.detail
+    assert result.detail.startswith("closest:")

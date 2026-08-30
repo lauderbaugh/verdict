@@ -15,7 +15,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from difflib import SequenceMatcher
-from typing import Iterable, List, Optional, Tuple
+from typing import Iterable, List, Optional, Sequence, Tuple
 
 #: Above this, two names are the same track. Chosen to tolerate
 #: punctuation and casing drift while still separating distinct songs.
@@ -39,6 +39,11 @@ _SUFFIX_RE = re.compile(
     r")\b.*$",
     re.IGNORECASE,
 )
+
+#: Separators Pitchfork uses for shared credits: "Erykah Badu / the
+#: Alchemist". Spotify lists such records with one artist per entry, so
+#: the joined string matches neither entry on its own.
+_CREDIT_SPLIT_RE = re.compile(r"\s*(?:/|&|,|\band\b|\bx\b|\bwith\b)\s*", re.IGNORECASE)
 
 _PUNCT_RE = re.compile(r"[^\w\s]", re.UNICODE)
 _WS_RE = re.compile(r"\s+")
@@ -104,3 +109,34 @@ def rank(candidate: str, options: Iterable[str]) -> List[Tuple[str, float]]:
     scored = [(option, similarity(candidate, option)) for option in options]
     scored.sort(key=lambda pair: pair[1], reverse=True)
     return scored
+
+
+def credits(name: str) -> List[str]:
+    """A shared credit split into its individual artists.
+
+    Returns the original as a single element when there is nothing to
+    split, so callers can always iterate.
+    """
+    parts = [p.strip() for p in _CREDIT_SPLIT_RE.split(name) if p.strip()]
+    return parts or [name]
+
+
+def artist_similarity(credited: str, listed: Sequence[str]) -> float:
+    """Match a verdict's artist credit against an album's artist list.
+
+    Compares the credit whole (against each listed artist and against
+    them joined) and split into parts, taking the best. Without the
+    split, "Erykah Badu / the Alchemist" scores 0.68 against an album
+    credited to both of them and falls below threshold -- a whole class
+    of collaborations, not a one-off.
+
+    Splitting cannot loosen matching dangerously: album title similarity
+    is scored separately and the caller takes the weaker of the two.
+    """
+    if not listed:
+        return 0.0
+    scores = [similarity(credited, ", ".join(listed))]
+    for entry in listed:
+        scores.append(similarity(credited, entry))
+        scores.extend(similarity(part, entry) for part in credits(credited))
+    return max(scores)

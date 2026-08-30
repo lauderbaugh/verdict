@@ -115,19 +115,57 @@ def test_client_errors_do_not_retry():
 
 # --- endpoints ------------------------------------------------------------
 
-def test_search_uses_field_filters_and_the_capped_limit():
-    """Search caps at 10; asking for more is a 400, not a silent clamp."""
+def test_search_uses_quoted_field_filters_and_the_capped_limit():
+    """Search caps at 10; asking for more is a 400, not a silent clamp.
+
+    Values are quoted so a title's punctuation cannot end the filter
+    early -- `album:Never Enough: Versions` leaves a stray colon.
+    """
     spotify, api = client([(200, {}, {"albums": {"items": [{"id": "a1"}]}})])
     assert spotify.search_albums("Interpol", "This Mirror Weighs a Ton") == [{"id": "a1"}]
     url = api.calls[0][1]
-    assert "artist%3AInterpol" in url
-    assert "album%3AThis+Mirror" in url
+    assert "artist%3A%22Interpol%22" in url
+    assert "album%3A%22This+Mirror" in url
     assert "limit=10" in url and "type=album" in url
+    assert len(api.calls) == 1  # no fallback needed when the filter hits
 
 
-def test_search_tolerates_an_empty_result():
-    spotify, _ = client([(200, {}, {"albums": {"items": []}})])
+def test_colon_in_an_album_title_stays_inside_the_filter():
+    """'Never Enough: Versions' is in the captured roundup."""
+    spotify, api = client([(200, {}, {"albums": {"items": [{"id": "a1"}]}})])
+    spotify.search_albums("Turnstile", "Never Enough: Versions")
+    assert "album%3A%22Never+Enough%3A+Versions%22" in api.calls[0][1]
+
+
+def test_empty_filtered_search_retries_unfiltered():
+    """Filters are precise but brittle; a miss costs a whole album."""
+    spotify, api = client([
+        (200, {}, {"albums": {"items": []}}),
+        (200, {}, {"albums": {"items": [{"id": "found"}]}}),
+    ])
+    assert spotify.search_albums("Sigur Rós", "Á") == [{"id": "found"}]
+    assert len(api.calls) == 2
+    assert "artist%3A" not in api.calls[1][1]
+
+
+def test_search_tolerates_both_attempts_finding_nothing():
+    spotify, _ = client([
+        (200, {}, {"albums": {"items": []}}),
+        (200, {}, {"albums": {"items": []}}),
+    ])
     assert spotify.search_albums("Nobody", "Nothing") == []
+
+
+def test_quotes_in_a_title_cannot_terminate_the_filter():
+    spotify, api = client([(200, {}, {"albums": {"items": [{"id": "a"}]}})])
+    spotify.search_albums('Some "Band"', 'A "Quoted" Title')
+    assert api.calls[0][1].count("%22") == 4  # only the four we opened
+
+
+def test_album_id_is_url_quoted():
+    spotify, api = client([(200, {}, {"items": [{"uri": "u"}], "next": None})])
+    spotify.album_tracks("weird/id")
+    assert "weird%2Fid" in api.calls[0][1]
 
 
 def test_album_tracks_follows_pagination():

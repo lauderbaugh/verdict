@@ -35,6 +35,11 @@ Response = Tuple[int, Dict[str, str], bytes]
 Transport = Callable[[str, str, dict, Optional[bytes]], Response]
 
 
+def _quotable(value: str) -> str:
+    """Strip the double quotes that would terminate a filter value early."""
+    return str(value).replace('"', " ").strip()
+
+
 class SpotifyError(Exception):
     """A request failed."""
 
@@ -183,11 +188,26 @@ class Spotify:
 
         raise SpotifyError(f"GET {path}: retries exhausted")
 
-    def search_albums(self, artist: str, album: str) -> list[dict]:
-        """Field-filtered album search, best matches first."""
-        query = f"artist:{artist} album:{album}"
+    def _search(self, query: str) -> List[dict]:
         data = self.get("/search", {"q": query, "type": "album", "limit": SEARCH_LIMIT})
         return data.get("albums", {}).get("items", []) or []
+
+    def search_albums(self, artist: str, album: str) -> List[dict]:
+        """Album search, best matches first.
+
+        Filter values are quoted because an unquoted one ends at the next
+        delimiter: `album:Never Enough: Versions` leaves a stray colon in
+        the query. When the filtered search finds nothing, one unfiltered
+        retry follows -- filters are precise but brittle with punctuation,
+        and a miss costs a whole album for the week.
+
+        UNVERIFIED: the quoting behaviour has not been exercised against
+        the live endpoint, only against the documented grammar.
+        """
+        items = self._search(f'artist:"{_quotable(artist)}" album:"{_quotable(album)}"')
+        if items:
+            return items
+        return self._search(f"{_quotable(artist)} {_quotable(album)}")
 
     def album_tracks(self, album_id: str) -> list[dict]:
         """Every track on an album, following pagination.
@@ -199,7 +219,8 @@ class Spotify:
         offset = 0
         while True:
             page = self.get(
-                f"/albums/{album_id}/tracks", {"limit": TRACKS_PAGE, "offset": offset}
+                f"/albums/{urllib.parse.quote(str(album_id), safe='')}/tracks",
+                {"limit": TRACKS_PAGE, "offset": offset},
             )
             items = page.get("items", []) or []
             tracks.extend(items)

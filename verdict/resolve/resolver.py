@@ -19,16 +19,14 @@ from verdict.resolve.matcher import (
     best_match,
     similarity,
 )
+from verdict.resolve.selection import (
+    MAX_TRACKS,
+    MIN_TRACKS,
+    NAMED,
+    ResolvedTrack,
+    select,
+)
 from verdict.spotify import AuthError, Spotify, SpotifyError
-
-
-@dataclass(frozen=True)
-class ResolvedTrack:
-    uri: str
-    name: str
-    #: The match score, or None when this track came from the fallback
-    #: and was never matched against anything.
-    confidence: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -114,11 +112,18 @@ def _match_tracks(
         uri = track["uri"]
         # Keep the strongest confidence if two candidates land on one track.
         if uri not in matched or (matched[uri].confidence or 0) < score:
-            matched[uri] = ResolvedTrack(uri=uri, name=name, confidence=score)
-    return list(matched.values())
+            matched[uri] = ResolvedTrack(
+                uri=uri, name=name, selection=NAMED, confidence=score,
+                position=next(
+                    (i for i, t in enumerate(tracks, 1) if t.get("uri") == uri), None
+                ),
+            )
+    # Prose order, not match order: the first four a writer names are the
+    # four they meant, and dict insertion follows the candidate sequence.
+    return list(matched.values())[:MAX_TRACKS]
 
 
-def resolve(client: Spotify, verdict: Verdict) -> Outcome:
+def resolve(client: Spotify, verdict: Verdict, lastfm=None) -> Outcome:
     """Turn one verdict into validated track URIs."""
     try:
         albums = client.search_albums(verdict.artist, verdict.album)
@@ -156,26 +161,24 @@ def resolve(client: Spotify, verdict: Verdict) -> Outcome:
         return Unresolved(verdict, "album_has_no_tracks")
 
     matched = _match_tracks(verdict.named_tracks, tracks)
-    if matched:
-        return Resolution(
-            verdict=verdict,
-            album_id=album_id,
-            album_name=album.get("name", ""),
-            tracks=tuple(matched),
-        )
 
-    # Nothing named, or nothing that survived validation. Take the first
-    # track only -- never the whole album. At ~13 albums a week over a
-    # 4-week window, whole albums would mean a 500-track playlist.
-    first = tracks[0]
-    if not first.get("uri"):
-        return Unresolved(verdict, "first_track_missing_uri")
+    # Last.fm is consulted only when the source named too few. A source
+    # that named enough has already made the judgement, and its own pick
+    # beats an aggregate one.
+    plays = None
+    if lastfm is not None and len(matched) < MIN_TRACKS:
+        plays = lastfm.album_plays(verdict.artist, verdict.album)
+
+    chosen = select(matched, tracks, plays)
+    if not chosen:
+        return Unresolved(verdict, "no_selectable_tracks")
+
     return Resolution(
         verdict=verdict,
         album_id=album_id,
         album_name=album.get("name", ""),
-        tracks=(ResolvedTrack(uri=first["uri"], name=first.get("name", "")),),
-        used_fallback=True,
+        tracks=tuple(chosen),
+        used_fallback=any(t.selection != NAMED for t in chosen),
     )
 
 

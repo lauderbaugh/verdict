@@ -19,7 +19,7 @@ from verdict.journal import Journal
 from verdict.models import Verdict
 from verdict.playlist.window import WINDOW_DAYS, plan, read_items
 from verdict.resolve.matcher import normalize
-from verdict.resolve.resolver import Resolution, Unresolved, resolve
+from verdict.resolve.resolver import Resolution, ResolvedTrack, Unresolved, resolve
 from verdict.sources import pitchfork_bnm, pitchfork_roundup
 from verdict.spotify import AuthError, Spotify, SpotifyError
 from verdict.verso import StateShapeError
@@ -166,6 +166,7 @@ def execute(
     sleep: Callable[[float], None] = time.sleep,
     now: Optional[datetime] = None,
     run_date: Optional[date] = None,
+    lastfm=None,
 ) -> RunReport:
     """One complete weekly run."""
     now = now or datetime.now(timezone.utc)
@@ -182,7 +183,7 @@ def execute(
     resolutions: List[Resolution] = []
     for verdict in verdicts:
         try:
-            outcome = resolve(client, verdict)
+            outcome = resolve(client, verdict, lastfm)
         except AuthError as exc:
             # Fails identically for every remaining verdict, so stop here.
             # Logging one row per album would bury the single real cause
@@ -219,12 +220,12 @@ def execute(
         return report
 
     # Candidate URIs, with the verdict each came from for the log.
-    origin: Dict[str, Tuple[Verdict, str, Optional[float]]] = {}
+    origin: Dict[str, Tuple[Verdict, "ResolvedTrack"]] = {}
     candidates: List[str] = []
     for resolution in resolutions:
         for track in resolution.tracks:
             if track.uri not in origin:
-                origin[track.uri] = (resolution.verdict, track.name, track.confidence)
+                origin[track.uri] = (resolution.verdict, track)
                 candidates.append(track.uri)
 
     try:
@@ -251,11 +252,14 @@ def execute(
         try:
             client.add_items(playlist_id, decision.add)
             for uri in decision.add:
-                verdict, track_name, confidence = origin[uri]
+                verdict, track = origin[uri]
                 journal.addition(
-                    source=verdict.source, track=track_name, artist=verdict.artist,
+                    source=verdict.source, track=track.name, artist=verdict.artist,
                     album=verdict.album, uri=uri, source_url=verdict.source_url,
-                    score=verdict.score, match_confidence=confidence, run_date=run_date,
+                    score=verdict.score, match_confidence=track.confidence,
+                    selection=track.selection, playcount=track.playcount,
+                    album_playcount=track.album_playcount, rule=track.rule,
+                    position=track.position, run_date=run_date,
                 )
             report.added = len(decision.add)
         except SpotifyError as exc:
@@ -273,6 +277,7 @@ def main() -> int:
     import os
     import sys
 
+    from verdict.resolve.lastfm import Lastfm
     from verdict.spotify import TokenProvider
 
     required = (
@@ -293,7 +298,16 @@ def main() -> int:
             refresh_token=os.environ["SPOTIFY_REFRESH_TOKEN"],
         )
     )
-    report = execute(client, os.environ["SPOTIFY_PLAYLIST_ID"], Journal())
+    # Last.fm is optional: without a key the chain simply falls through
+    # to positional, which is the same path a slow or broken Last.fm takes.
+    lastfm_key = os.environ.get("LASTFM_API_KEY")
+    lastfm = Lastfm(lastfm_key) if lastfm_key else None
+    if lastfm is None:
+        print("LASTFM_API_KEY not set; filling from track position only")
+
+    report = execute(
+        client, os.environ["SPOTIFY_PLAYLIST_ID"], Journal(), lastfm=lastfm
+    )
 
     print(
         f"verdicts={report.verdicts} resolved={report.resolved} "

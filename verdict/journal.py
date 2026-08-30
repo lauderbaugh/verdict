@@ -72,6 +72,11 @@ class Journal:
         source_url: str,
         score: Optional[float] = None,
         match_confidence: Optional[float] = None,
+        selection: Optional[str] = None,
+        playcount: Optional[int] = None,
+        album_playcount: Optional[int] = None,
+        rule: Optional[str] = None,
+        position: Optional[int] = None,
         run_date: Optional[date] = None,
     ) -> None:
         """Record a track added to the playlist.
@@ -91,6 +96,15 @@ class Journal:
                 "source_url": source_url,
                 "score": score,
                 "match_confidence": match_confidence,
+                # How this track was chosen: named / lastfm / positional.
+                # playcount and album_playcount are recorded so the
+                # sparsity threshold can be tuned from real numbers
+                # rather than guessed at a second time.
+                "selection": selection,
+                "playcount": playcount,
+                "album_playcount": album_playcount,
+                "rule": rule,
+                "position": position,
                 "run_date": (run_date or date.today()).isoformat(),
             },
         )

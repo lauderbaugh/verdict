@@ -39,6 +39,8 @@ jobs:
           SPOTIFY_CLIENT_SECRET: ${{ secrets.SPOTIFY_CLIENT_SECRET }}
           SPOTIFY_REFRESH_TOKEN: ${{ secrets.SPOTIFY_REFRESH_TOKEN }}
           SPOTIFY_PLAYLIST_ID: ${{ secrets.SPOTIFY_PLAYLIST_ID }}
+          # Optional: absent, selection falls through to track position.
+          LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
         run: python -m verdict.run
 
       # Committed with the PAT rather than GITHUB_TOKEN. Scheduled

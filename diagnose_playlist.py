@@ -90,8 +90,12 @@ def main() -> int:
                   f"{row.get('artist', '')[:22]:24} {row.get('track', '')[:28]:30} {row.get('uri')}")
         if len(missing_rows) > 25:
             print(f"  ... and {len(missing_rows) - 25} more")
-        print("\nThese are inside the dedup window, so every later run will skip")
-        print("them and they will never be retried. That is the bug to chase.")
+        print("\nTwo explanations, and they look identical from here:")
+        print("  1. You removed them from the playlist by hand.")
+        print("  2. The run reported adding them and the write did not take.")
+        print("\nEither way they are inside the dedup window, so no later run")
+        print("will re-add them until they age out of additions.ndjson. For a")
+        print("deliberate deletion that is the behaviour you want.")
     else:
         print("\nEvery logged track is on the playlist. The log and Spotify agree.")
 

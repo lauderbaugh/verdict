@@ -197,3 +197,16 @@ def test_the_happy_path_returns_both(tmp_path, page):
     )
     assert result.editorial == ("Maripool", "Rotten Luck")
     assert result.entry_count == 126
+
+
+def test_the_feed_url_avoids_the_redirect():
+    """Stereogum 308s the slashed form.
+
+    urllib did not follow 308 before Python 3.11, and the first live run
+    logged `corroboration_unavailable: HTTP Error 308: Permanent
+    Redirect`. Requesting the already-redirected URL sidesteps the
+    version question entirely.
+    """
+    from verdict.corroborate import FEED_URL
+
+    assert not FEED_URL.endswith("/")

@@ -16,6 +16,12 @@ class Verdict:
     publications (SPEC: "Non-goals"). A Pitchfork 8.6 and some other
     outlet's 4/5 are not comparable and must not be made to look it.
 
+    It is typed loosely for the same reason. Pitchfork publishes a
+    number and Paste publishes a letter grade, and a Paste verdict
+    carries "B-" rather than a number invented to represent it. Nothing
+    does arithmetic on this field -- it is tested for presence and
+    logged, nothing more.
+
     `named_tracks` holds *candidate* track names lifted from the writeup.
     They are noisy by design -- lyrics and descriptive phrases come along
     with real titles -- and are only trustworthy after being validated
@@ -28,7 +34,7 @@ class Verdict:
     source_url: str
     published_at: datetime | None = None
     label: str | None = None
-    score: float | None = None
+    score: float | str | None = None
     named_tracks: tuple[str, ...] = field(default_factory=tuple)
 
     #: The publication's own editorial ranking of this album within the

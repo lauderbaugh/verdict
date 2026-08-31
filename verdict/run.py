@@ -20,11 +20,16 @@ from verdict.models import Verdict
 from verdict.playlist.window import WINDOW_DAYS, plan, read_items
 from verdict.resolve.matcher import normalize
 from verdict.resolve.resolver import Resolution, ResolvedTrack, Unresolved, resolve
-from verdict.sources import npr_new_music_friday, pitchfork_bnm, pitchfork_roundup
+from verdict.sources import (
+    npr_new_music_friday,
+    paste,
+    pitchfork_bnm,
+    pitchfork_roundup,
+)
 from verdict.spotify import AuthError, Spotify, SpotifyError
 from verdict.verso import StateShapeError
 
-SOURCES = (pitchfork_roundup, pitchfork_bnm, npr_new_music_friday)
+SOURCES = (pitchfork_roundup, pitchfork_bnm, npr_new_music_friday, paste)
 
 #: Politeness delay between page fetches. The feed reports 100 requests
 #: per window and this run needs far fewer, so there is no reason to rush.

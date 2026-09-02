@@ -21,6 +21,7 @@ from verdict.playlist.window import WINDOW_DAYS, plan, read_items
 from verdict.resolve.matcher import normalize
 from verdict.resolve.resolver import Resolution, ResolvedTrack, Unresolved, resolve
 from verdict.sources import (
+    bandcamp_daily,
     npr_new_music_friday,
     paste,
     pitchfork_bnm,
@@ -29,7 +30,13 @@ from verdict.sources import (
 from verdict.spotify import AuthError, Spotify, SpotifyError
 from verdict.verso import StateShapeError
 
-SOURCES = (pitchfork_roundup, pitchfork_bnm, npr_new_music_friday, paste)
+SOURCES = (
+    pitchfork_roundup,
+    pitchfork_bnm,
+    npr_new_music_friday,
+    paste,
+    bandcamp_daily,
+)
 
 #: Politeness delay between page fetches. The feed reports 100 requests
 #: per window and this run needs far fewer, so there is no reason to rush.
@@ -270,6 +277,7 @@ def execute(
                     corroborated_by_list=verdict.corroborated_by_list,
                     corroborated_editorially=verdict.corroborated_editorially,
                     editorial_tier=verdict.editorial_tier,
+                    genre=verdict.genre,
                     run_date=run_date,
                 )
             report.added = len(decision.add)

@@ -5,10 +5,17 @@ from __future__ import annotations
 import pytest
 
 from verdict.feed import FeedItem
-from verdict.sources import npr_new_music_friday, pitchfork_bnm, pitchfork_roundup
+from verdict.sources import (
+    bandcamp_daily,
+    npr_new_music_friday,
+    pitchfork_bnm,
+    pitchfork_roundup,
+)
 from verdict.sources.base import Candidate, ParseResult, Source
 
-ADAPTERS = [pitchfork_roundup, pitchfork_bnm, npr_new_music_friday]
+#: The feed-based adapters. Paste is a source too, but discovers from
+#: an HTML index and has no FEED_URL to check.
+ADAPTERS = [pitchfork_roundup, pitchfork_bnm, npr_new_music_friday, bandcamp_daily]
 
 
 @pytest.mark.parametrize("adapter", ADAPTERS, ids=lambda a: a.NAME)
@@ -31,6 +38,14 @@ def test_every_source_owns_its_discovery():
 def test_sources_use_different_feeds():
     urls = {a.FEED_URL for a in ADAPTERS}
     assert len(urls) == len(ADAPTERS)
+
+
+def test_bandcamp_shares_a_feed_with_every_other_section():
+    """Its feed is site-wide, so selection is the adapter's whole job here."""
+    feed = open("tests/fixtures/bandcamp_daily_feed.xml", encoding="utf-8").read()
+    from verdict.feed import parse_rss
+
+    assert len(parse_rss(feed)) > len(bandcamp_daily.discover(lambda _: feed).candidates)
 
 
 def test_only_npr_answers_without_a_page_fetch():

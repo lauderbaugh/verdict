@@ -75,6 +75,7 @@ def test_addition_records_the_spec_schema(tmp_path):
         "score", "match_confidence", "run_date",
         "selection", "playcount", "album_playcount", "rule", "position",
         "corroborated_by_list", "corroborated_editorially", "editorial_tier",
+        "genre",
     }
 
 

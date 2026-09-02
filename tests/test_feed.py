@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import timezone
+from datetime import datetime, timezone
 
 import pytest
 
@@ -65,3 +65,27 @@ def test_unparseable_date_yields_none_not_a_guess(items):
 def test_malformed_feed_raises():
     with pytest.raises(ValueError):
         parse_rss("<rss><channel><item>")
+
+
+def test_a_minus_zero_zero_zero_pubdate_comes_back_aware():
+    """RFC 5322 "-0000" is UTC with an unknown local zone, and the stdlib
+    returns it naive. Bandcamp Daily stamps every item that way, and a
+    naive value meeting an aware cutoff is a TypeError mid-run, not a
+    slightly different answer."""
+    xml = (
+        '<rss><channel><item><link>https://x/1</link>'
+        '<pubDate>Tue, 01 Sep 2026 13:44:42 -0000</pubDate>'
+        "</item></channel></rss>"
+    )
+    published = parse_rss(xml)[0].published_at
+    assert published == datetime(2026, 9, 1, 13, 44, 42, tzinfo=timezone.utc)
+
+
+def test_an_offset_pubdate_is_normalised_to_utc():
+    xml = (
+        '<rss><channel><item><link>https://x/1</link>'
+        '<pubDate>Tue, 01 Sep 2026 09:44:42 -0400</pubDate>'
+        "</item></channel></rss>"
+    )
+    published = parse_rss(xml)[0].published_at
+    assert published == datetime(2026, 9, 1, 13, 44, 42, tzinfo=timezone.utc)

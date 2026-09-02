@@ -47,6 +47,16 @@ class Verdict:
     #: counts would need (see SPEC.md, Later).
     editorial_tier: str | None = None
 
+    #: The genre the publication files this album under, in that
+    #: publication's own vocabulary -- Bandcamp Daily's "Soundtrack",
+    #: not a taxonomy of ours. Source-native and never mapped between
+    #: publications, for the same reason `score` is not.
+    #:
+    #: Nothing reads it. It is recorded because Bandcamp Daily was added
+    #: specifically to widen the playlist past indie rock, and without
+    #: this field there is no way to check from the logs whether it did.
+    genre: str | None = None
+
     #: Corroboration from a publication that contributes no tracks of its
     #: own. Two separate claims, never collapsed into one flag:
     #:

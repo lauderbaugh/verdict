@@ -19,6 +19,12 @@ newsletter tags. Verified pages carry at least seven such block types and
 Verso adds more; a denylist silently leaks their text into track
 candidates.
 
+A complete tracklist is a manifest, not a recommendation. Bandcamp Daily
+embeds the whole album in a player's JSON and it is deliberately not
+read: lifting it would claim the writer named every track. Same rule as
+Stereogum's release list — presence is not editorial agreement. Only
+what the prose actually names counts as named.
+
 Track candidates are meant to be noisy. Roughly half are lyrics or
 scare-quoted prose. Do not filter them heuristically — validation against
 the real tracklist is what discards non-tracks, and clever filtering here

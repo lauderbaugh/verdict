@@ -23,7 +23,8 @@ Scores are never normalized across publications.
 
 ### Sources
 
-`docs/second-source-candidates.md` surveys others.
+`docs/second-source-candidates.md` and `docs/genre-source-candidates.md` survey
+the ones that were considered and rejected, and why.
 
 - **`pitchfork_roundup`** — the weekly "N New Albums You Should Listen to Now",
   ~13 albums a week. The primary source; it covers records that never get a full
@@ -37,6 +38,9 @@ Scores are never normalized across publications.
 - **`paste`** — ~5-7 albums a week from an HTML index, no feed. Names tracks in
   prose, so its albums mostly resolve on named tracks, and carries a letter
   grade which is kept as written.
+- **`bandcamp_daily`** — Album of the Day, one editorial pick per weekday,
+  filtered out of a site-wide feed. No score: being chosen is the verdict. The
+  only source that publishes a genre, which is recorded as written.
 
 Stereogum is fetched once a week but is **not** a source: it contributes no
 tracks, only evidence about albums the sources already found. Two separate

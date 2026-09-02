@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 
 
@@ -40,9 +40,18 @@ def _published(item: ET.Element) -> datetime | None:
     if not raw:
         return None
     try:
-        return parsedate_to_datetime(raw)
+        parsed = parsedate_to_datetime(raw)
     except (TypeError, ValueError):
         return None
+    # Bandcamp Daily stamps its feed "-0000", which RFC 5322 defines as
+    # UTC with an unknown local zone -- and which `parsedate_to_datetime`
+    # faithfully returns as a *naive* datetime. Every source compares
+    # this against an aware cutoff, so a naive value is not a slightly
+    # different answer, it is a TypeError mid-run. Normalising here fixes
+    # it once for every feed rather than in each adapter that meets one.
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def parse_rss(xml_text: str) -> list[FeedItem]:

@@ -430,6 +430,14 @@ Album Of The Week, NPR's Starting 5, Pitchfork's Best New Music — and never by
 appearance on a long list. Presence may corroborate that a record exists; only
 an editorial pick is evidence anyone thought it mattered.
 
+The same rule applies *inside* an article, and the naming is almost comic about
+it. Bandcamp Daily's monthly Best Jazz column closes with a list headed "Other
+Albums of Note" — the same phrase Stereogum uses — holding records mentioned in
+passing rather than given an entry. Those are dropped and the heading terminates
+the album list. Twelve records chosen out of a month is selection; the tail is
+enumeration, and the fact that the writer typed both in one document does not
+make them the same claim.
+
 This is why `editorial_tier` is recorded on `Verdict` even though nothing reads
 it yet: it is only available at parse time, and it is the field that would
 distinguish the two.

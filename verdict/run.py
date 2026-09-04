@@ -21,6 +21,7 @@ from verdict.playlist.window import WINDOW_DAYS, plan, read_items
 from verdict.resolve.matcher import normalize
 from verdict.resolve.resolver import Resolution, ResolvedTrack, Unresolved, resolve
 from verdict.sources import (
+    bandcamp_best_jazz,
     bandcamp_daily,
     npr_new_music_friday,
     paste,
@@ -36,6 +37,7 @@ SOURCES = (
     npr_new_music_friday,
     paste,
     bandcamp_daily,
+    bandcamp_best_jazz,
 )
 
 #: Politeness delay between page fetches. The feed reports 100 requests

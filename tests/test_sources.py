@@ -6,6 +6,7 @@ import pytest
 
 from verdict.feed import FeedItem
 from verdict.sources import (
+    bandcamp_best_jazz,
     bandcamp_daily,
     npr_new_music_friday,
     pitchfork_bnm,
@@ -15,7 +16,13 @@ from verdict.sources.base import Candidate, ParseResult, Source
 
 #: The feed-based adapters. Paste is a source too, but discovers from
 #: an HTML index and has no FEED_URL to check.
-ADAPTERS = [pitchfork_roundup, pitchfork_bnm, npr_new_music_friday, bandcamp_daily]
+ADAPTERS = [
+    pitchfork_roundup,
+    pitchfork_bnm,
+    npr_new_music_friday,
+    bandcamp_daily,
+    bandcamp_best_jazz,
+]
 
 
 @pytest.mark.parametrize("adapter", ADAPTERS, ids=lambda a: a.NAME)
@@ -36,8 +43,12 @@ def test_every_source_owns_its_discovery():
 
 
 def test_sources_use_different_feeds():
+    """Except the two Bandcamp adapters, which read different sections of
+    one site-wide feed. That is what makes selection their whole job."""
     urls = {a.FEED_URL for a in ADAPTERS}
-    assert len(urls) == len(ADAPTERS)
+    assert len(urls) == len(ADAPTERS) - 1
+    assert bandcamp_daily.FEED_URL == bandcamp_best_jazz.FEED_URL
+    assert bandcamp_daily.SECTION != bandcamp_best_jazz.SECTION
 
 
 def test_bandcamp_shares_a_feed_with_every_other_section():

@@ -41,6 +41,11 @@ the ones that were considered and rejected, and why.
 - **`bandcamp_daily`** — Album of the Day, one editorial pick per weekday,
   filtered out of a site-wide feed. No score: being chosen is the verdict. The
   only source that publishes a genre, which is recorded as written.
+- **`bandcamp_best_jazz`** — the monthly "Best Jazz on Bandcamp" column, ~12
+  albums in one article. The HTML twin of the Pitchfork roundup: an `h3` per
+  album, the album italicised. The closing "Other Albums of Note" list is
+  dropped — twelve records chosen out of a month is selection, the tail is
+  enumeration. The only source covering a genre deliberately.
 
 Stereogum is fetched once a week but is **not** a source: it contributes no
 tracks, only evidence about albums the sources already found. Two separate

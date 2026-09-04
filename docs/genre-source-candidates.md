@@ -190,8 +190,76 @@ human made a judgement worth acting on, and a listing that treats album reviews
 and affiliate-driven AI tool roundups as the same kind of content does not
 support that premise. Not recommended.
 
+## Spotify playlists as a source — closed, 2026-09-03
+
+Asked whether well-reviewed Spotify playlists could stand in for the outlets we
+cannot read. Probed against the project's own credentials rather than reasoned
+about:
+
+| What | Result |
+|---|---|
+| Spotify-owned editorial (`State of Jazz`, `African Heat`) | **404** — not available to this app |
+| Someone else's public playlist, metadata | readable: name, owner, followers, `snapshot_id` |
+| Someone else's public playlist, **`/items`** | **403 Forbidden** |
+| Our own playlist, same endpoint | 65 items, fine |
+
+`public: true` makes no difference. We can see that a playlist exists and how
+many people follow it, and nothing about what is on it.
+
+Spotify's embed pages do render playlist contents server-side, so a workaround
+exists. Not taken: it routes around an access control Spotify deliberately
+imposed, using the credentials the entire pipeline depends on. Losing the app
+costs Verdict, not just this feature.
+
+Worth recording what a search *does* return, since the question was partly how
+to find these at all. Not the publications — fans transcribing them:
+
+```
+Reviewed in The Wire Magazine 511 | September 2026   by a private user, 81 followers
+Songlines Top of the World 1999-2024 [2250]          by a private user
+Jazzwise's 100 Jazz Albums That Shook The World      by a private user
+```
+
+Zero Spotify-owned playlists surfaced, which is its own confirmation. And even
+with the 403 lifted, one reader's transcription of a magazine is not the
+magazine: Verdict's premise is a named critic's judgement, and a second-hand
+copy cannot be checked against the original.
+
+## Bandcamp Daily's genre columns — the actual answer
+
+The gap was one section over from the source already built. Bandcamp Daily runs
+monthly genre columns beside Album of the Day, structured far more rigidly than
+the prose the pipeline already handles:
+
+```html
+<h3>Henry Threadgill's Zooid<br><a href="..."><em>Cut You Where You Was</em></a></h3>
+```
+
+Recency, checked 2026-09-03:
+
+| Column | Latest | Verdict |
+|---|---|---|
+| `best-jazz` | August 2026 | current and monthly — **built** |
+| `best-field-recordings` | August 2026 | current |
+| `best-contemporary-classical` | July 2026 | alive but intermittent |
+| `best-experimental` | May 2026 | lapsing |
+| `best-folk` | November 2023 | dead |
+
+### What the genre field measured
+
+A census over the live Album of the Day window, nine albums: 3 Alternative,
+1 each of Electronic, Pop, Jazz, Ambient, Rock, Experimental. **Zero World, zero
+Classical.** So Album of the Day alone does not close the gap — measured rather
+than assumed, which is what the field was added for.
+
+World remains genuinely unserved. Bandcamp carries a `world` genre tag but runs
+no column behind it, and `best-folk`, the nearest neighbour, died in 2023.
+
 ## Outcome
 
-`bandcamp_daily` was built. classical-music.com is left open, blocked on the
-movement-selection question rather than on anything technical. The rest are
-closed.
+`bandcamp_daily` and `bandcamp_best_jazz` were built. `best-contemporary-classical`
+is the obvious next one and has identical markup, but is blocked on the same
+question as classical-music.com: a classical record is movements, and the
+fallback rungs would pick movements 2 and 4 of a symphony, out of order, and
+call that a recommendation. classical-music.com is left open for the same
+reason. Spotify playlists and the rest are closed.

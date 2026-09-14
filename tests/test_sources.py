@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import pytest
 
 from verdict.feed import FeedItem
@@ -13,6 +15,11 @@ from verdict.sources import (
     pitchfork_roundup,
 )
 from verdict.sources.base import Candidate, ParseResult, Source
+
+#: The days the NPR and Bandcamp feed fixtures were captured, so their
+#: recency windows are deterministic rather than aging out with the clock.
+NPR_CAPTURED = datetime(2026, 8, 31, tzinfo=timezone.utc)
+BANDCAMP_CAPTURED = datetime(2026, 9, 1, tzinfo=timezone.utc)
 
 #: The feed-based adapters. Paste is a source too, but discovers from
 #: an HTML index and has no FEED_URL to check.
@@ -56,13 +63,13 @@ def test_bandcamp_shares_a_feed_with_every_other_section():
     feed = open("tests/fixtures/bandcamp_daily_feed.xml", encoding="utf-8").read()
     from verdict.feed import parse_rss
 
-    assert len(parse_rss(feed)) > len(bandcamp_daily.discover(lambda _: feed).candidates)
+    assert len(parse_rss(feed)) > len(bandcamp_daily.discover(lambda _: feed, now=BANDCAMP_CAPTURED).candidates)
 
 
 def test_only_npr_answers_without_a_page_fetch():
     """A source that can answer from the feed should not fetch a page."""
     feed = open("tests/fixtures/npr_music_podcast_feed.xml").read()
-    npr_candidates = npr_new_music_friday.discover(lambda _: feed).candidates
+    npr_candidates = npr_new_music_friday.discover(lambda _: feed, now=NPR_CAPTURED).candidates
     assert npr_candidates and all(not c.needs_page for c in npr_candidates)
 
 

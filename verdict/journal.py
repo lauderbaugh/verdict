@@ -80,6 +80,7 @@ class Journal:
         corroborated_by_list: Optional[bool] = None,
         corroborated_editorially: Optional[bool] = None,
         editorial_tier: Optional[str] = None,
+        genre: Optional[str] = None,
         run_date: Optional[date] = None,
     ) -> None:
         """Record a track added to the playlist.
@@ -116,6 +117,10 @@ class Journal:
                 "corroborated_by_list": corroborated_by_list,
                 "corroborated_editorially": corroborated_editorially,
                 "editorial_tier": editorial_tier,
+                # The source's own genre label, where it publishes one.
+                # Recorded to answer whether a source added for breadth
+                # actually broadened the playlist.
+                "genre": genre,
                 "run_date": (run_date or date.today()).isoformat(),
             },
         )

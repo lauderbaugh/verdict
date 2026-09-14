@@ -59,7 +59,13 @@ log/           NDJSON history
 
 `Verdict`: `source`, `artist`, `album`, `label`, `source_url`, `published_at`,
 `score` (optional, source-native — do NOT normalize across publications),
-`named_tracks` (list, often empty).
+`named_tracks` (list, often empty), `genre` (optional, source-native).
+
+`genre` is the publication's own label — Bandcamp Daily's "Soundtrack" — and is
+never mapped onto a taxonomy of ours, for the same reason `score` is not
+normalized. Nothing reads it. It is recorded because Bandcamp Daily was added
+specifically to widen the playlist past indie rock, and without it there is no
+way to check from the logs whether it did.
 
 `score` is loosely typed on purpose. Pitchfork publishes a number and Paste
 publishes a letter grade, so a Paste verdict carries `"B-"` rather than a number
@@ -67,8 +73,16 @@ invented to stand for it. Nothing does arithmetic on the field — it is tested
 for presence and logged. (AV Club dropped grades entirely after the same company
 acquired it; Paste kept them.)
 
-Two adapters planned. Build `pitchfork_roundup` first and completely; add
-`pitchfork_bnm` second and let the second one force the shared interface.
+Two adapters were planned; there are five. `pitchfork_roundup` was built first
+and completely, and `pitchfork_bnm` second so the second one forced the shared
+interface into shape. `npr_new_music_friday` then broke that interface properly
+by needing no page fetch at all, which is why discovery belongs to the source.
+`paste` discovers from an HTML index rather than a feed, and `bandcamp_daily`
+filters one section out of a site-wide feed.
+
+Only the two Pitchfork adapters are specified below. The other three record
+their verified structure in their own module docstrings, which is where it stays
+readable next to the code that depends on it.
 
 ## Adapter 1: pitchfork_roundup (primary)
 
@@ -304,7 +318,8 @@ again — `additions.ndjson` is a history, not a blocklist.
 ```
 log/additions.ndjson   source, track, artist, album, uri, source_url, score, run_date,
                        match_confidence, selection, playcount, album_playcount,
-                       rule, position
+                       rule, position, editorial_tier, genre,
+                       corroborated_by_list, corroborated_editorially
 log/removals.ndjson    uri, aged_out_date
 log/unmatched.ndjson   source, artist, album, source_url, reason
 ```
@@ -414,6 +429,14 @@ room must be earned by agreement from something **editorial** — Stereogum's
 Album Of The Week, NPR's Starting 5, Pitchfork's Best New Music — and never by
 appearance on a long list. Presence may corroborate that a record exists; only
 an editorial pick is evidence anyone thought it mattered.
+
+The same rule applies *inside* an article, and the naming is almost comic about
+it. Bandcamp Daily's monthly Best Jazz column closes with a list headed "Other
+Albums of Note" — the same phrase Stereogum uses — holding records mentioned in
+passing rather than given an entry. Those are dropped and the heading terminates
+the album list. Twelve records chosen out of a month is selection; the tail is
+enumeration, and the fact that the writer typed both in one document does not
+make them the same claim.
 
 This is why `editorial_tier` is recorded on `Verdict` even though nothing reads
 it yet: it is only available at parse time, and it is the field that would

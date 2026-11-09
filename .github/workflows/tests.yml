@@ -7,13 +7,22 @@ on:
 
 jobs:
   pytest:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         # 3.9 is the floor declared in pyproject and the interpreter the
         # project is developed on; 3.13 guards against drift.
-        python-version: ["3.9", "3.13"]
+        #
+        # 3.9 is pinned to ubuntu-24.04: setup-python has no 3.9 build for
+        # ubuntu-26.04, which ubuntu-latest moved to in November 2026, and
+        # the job failed at setup. When 24.04 is retired, raise the floor
+        # in pyproject rather than dropping this job.
+        include:
+          - python-version: "3.9"
+            os: ubuntu-24.04
+          - python-version: "3.13"
+            os: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
